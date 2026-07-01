@@ -1,0 +1,83 @@
+/*
+ * drivers/video/fbdev/gcn-gx.h
+ *
+ * Nintendo GameCube/Wii GX GPU minimal driver
+ * Provides hardware EFB->XFB copy to replace software RGB->YUV conversion
+ * in gcnfb.c (vi_transcode_RGB*).
+ *
+ * Register reference derived from libogc (devkitPro/libogc).
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ */
+
+#ifndef _GCN_GX_H
+#define _GCN_GX_H
+
+#include <linux/types.h>
+
+/* GX hardware MMIO base addresses (physical) */
+#define GX_CP_BASE		0xCC000000	/* Command Processor */
+#define GX_PE_BASE		0xCC001000	/* Pixel Engine */
+#define GX_WGPIPE_BASE		0xCC008000	/* Write-Gather Pipe */
+
+/* CP register indices (16-bit, word-indexed) */
+#define CP_REG_STATUS		0	/* SR: status */
+#define CP_REG_CTRL		1	/* CR: control */
+#define CP_REG_CLR		3	/* clear */
+#define CP_REG_FIFO_BASE_LO	16
+#define CP_REG_FIFO_BASE_HI	17
+#define CP_REG_FIFO_END_LO	18
+#define CP_REG_FIFO_END_HI	19
+#define CP_REG_FIFO_HIWM_LO	20
+#define CP_REG_FIFO_HIWM_HI	21
+#define CP_REG_FIFO_LOWM_LO	22
+#define CP_REG_FIFO_LOWM_HI	23
+#define CP_REG_RWDST_LO		24
+#define CP_REG_RWDST_HI		25
+#define CP_REG_WT_LO		26
+#define CP_REG_WT_HI		27
+#define CP_REG_RD_LO		28
+#define CP_REG_RD_HI		29
+
+/* CP control register bits */
+#define CP_CR_GPRESET		BIT(0)	/* GP FIFO read enable */
+#define CP_CR_RDINT_EN		BIT(2)	/* FIFO underflow interrupt */
+#define CP_CR_WRINT_EN		BIT(3)	/* FIFO overflow interrupt */
+#define CP_CR_LINKEN		BIT(4)	/* link CPU/GP FIFOs */
+
+/* PE register indices (16-bit) */
+#define PE_REG_DONE		5	/* PE done token */
+
+/* BP command opcode — written to wgPipe before a 32-bit BP register value */
+#define GX_CMD_LOAD_BP_REG	0x61
+
+/* BP register addresses (upper byte of the 32-bit BP write value) */
+#define BP_DISP_COPY_TL		0x49	/* EFB copy source top-left */
+#define BP_DISP_COPY_WH		0x4a	/* EFB copy source width/height */
+#define BP_DISP_COPY_DST	0x4d	/* EFB copy dest stride */
+#define BP_DISP_COPY_ADDR	0x4b	/* EFB copy dest address (>>5) */
+#define BP_DISP_COPY_CTRL	0x52	/* EFB copy control/execute */
+
+/* dispCopyCntrl bits */
+#define COPY_CTRL_CLAMP_TOP	BIT(0)
+#define COPY_CTRL_CLAMP_BOT	BIT(1)
+#define COPY_CTRL_GAMMA_SHIFT	7	/* 2 bits */
+#define COPY_CTRL_YSCALE	BIT(10)
+#define COPY_CTRL_CLEAR		BIT(11)
+#define COPY_CTRL_FRAME2FIELD	BIT(12)
+#define COPY_CTRL_EXECUTE	BIT(14)	/* triggers the copy */
+
+/* GX_GM_1_0 gamma (no correction) */
+#define GX_GM_1_0		0
+
+/* FIFO minimum size: 64KB, must be 32-byte aligned */
+#define GX_FIFO_SIZE		(64 * 1024)
+#define GX_FIFO_HIWATERMARK	(16 * 1024)
+
+int gcn_gx_init(void);
+void gcn_gx_exit(void);
+void gcn_gx_copy_efb_to_xfb(void *xfb, u16 width, u16 height);
+
+#endif /* _GCN_GX_H */
