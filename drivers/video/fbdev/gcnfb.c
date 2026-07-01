@@ -36,6 +36,7 @@
 #include <linux/i2c.h>
 #endif
 #include <linux/videodev2.h>
+#include "gcn-gx.h"
 
 #define DRV_MODULE_NAME   "gcn-vifb"
 #define DRV_DESCRIPTION   "Nintendo GameCube/Wii Video Interface (VI) driver"
@@ -1476,15 +1477,21 @@ static irqreturn_t vi_irq_handler(int irq, void *dev)
 				/* do nothing */
 			break;
 			case V4L2_PIX_FMT_RGB565:
-				/* RGB565 -> YUYV */
-				if (vfb_diff)
+				if (gx_accel_ready)
+					gcn_gx_blit_fb_rgb565(vfb_mem, fb_mem,
+							      info->var.xres,
+							      info->var.yres);
+				else if (vfb_diff)
 					vi_transcode_RGB565_diff(ctl);
 				else
 					vi_transcode_RGB565(ctl);
 				break;
 			case PIX_FMT_RGB888:
-				/* (RGB32, RGB32) to YUYV */
-				if (vfb_diff)
+				if (gx_accel_ready)
+					gcn_gx_blit_fb_rgb888(vfb_mem, fb_mem,
+							      info->var.xres,
+							      info->var.yres);
+				else if (vfb_diff)
 					vi_transcode_RGB888_diff(ctl);
 				else
 					vi_transcode_RGB888(ctl);
@@ -2381,6 +2388,10 @@ static int vifb_do_probe(struct device *dev,
 	printk(KERN_INFO "fb%d: %s frame buffer device\n",
 	       info->node, info->fix.id);
 
+	if (gcn_gx_init() != 0)
+		drv_printk(KERN_WARNING,
+			   "GX accel unavailable, using SW transcode\n");
+
 	return 0;
 
 err_register_framebuffer:
@@ -2408,6 +2419,9 @@ static int vifb_do_remove(struct device *dev)
 	if (!info)
 		return -ENODEV;
 	ctl = info->par;
+
+	if (gx_accel_ready)
+		gcn_gx_exit();
 
 	free_irq(ctl->irq, dev);
 	unregister_framebuffer(info);

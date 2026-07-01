@@ -72,12 +72,20 @@
 /* GX_GM_1_0 gamma (no correction) */
 #define GX_GM_1_0		0
 
-/* FIFO minimum size: 64KB, must be 32-byte aligned */
+/* FIFO: 64KB, must be 32-byte aligned */
 #define GX_FIFO_SIZE		(64 * 1024)
 #define GX_FIFO_HIWATERMARK	(16 * 1024)
 
-int gcn_gx_init(void);
+/* Texture tile buffer: max FB is 640×480 RGB565 = 614,400 bytes */
+#define GX_TEX_BUF_SIZE		(640 * 480 * 2)
+
+/* gx_accel_ready is set to true by gcn_gx_init() on success */
+extern bool gx_accel_ready;
+
+int  gcn_gx_init(void);
 void gcn_gx_exit(void);
 void gcn_gx_copy_efb_to_xfb(void *xfb, u16 width, u16 height);
+void gcn_gx_blit_fb_rgb565(const void *vfb, void *xfb, u16 width, u16 height);
+void gcn_gx_blit_fb_rgb888(const void *vfb, void *xfb, u16 width, u16 height);
 
 #endif /* _GCN_GX_H */
