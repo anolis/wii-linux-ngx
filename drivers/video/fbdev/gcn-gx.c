@@ -583,6 +583,7 @@ static void gx_submit_cmds(void)
 	u32 phys_end   = phys_start + GX_FIFO_SIZE - 4;
 	u32 phys_wt;
 	u32 cp_rd, cp_wt;
+	u32 pi_wptr;
 
 	/* Pad to 32-byte boundary (GP DMA requires 32-byte alignment) */
 	while (fifo_pos & 0x1f)
@@ -631,6 +632,16 @@ static void gx_submit_cmds(void)
 	pi_write(PI_REG_FIFO_END,  phys_end   & ~0x1fu);
 	pi_write(PI_REG_FIFO_WPTR, phys_wt);
 	pi_write(PI_REG_FIFO_CTRL, PI_FIFO_CTRL_EN);
+	if (!logged_after_enable) {
+		cp_rd = ((u32)cp_read(CP_REG_RD_HI) << 16) |
+			cp_read(CP_REG_RD_LO);
+		cp_wt = ((u32)cp_read(CP_REG_WT_HI) << 16) |
+			cp_read(CP_REG_WT_LO);
+		pi_wptr = pi_read(PI_REG_FIFO_WPTR);
+		pr_info("gcn-gx: preGP: RDoff=0x%04x WToff=0x%04x PIoff=0x%04x pos=%u\n",
+			cp_rd - phys_start, cp_wt - phys_start,
+			pi_wptr - phys_start, fifo_pos);
+	}
 
 	/*
 	 * Enable GP with FIFO link.  libogc always enables both GPRESET and
@@ -644,9 +655,10 @@ static void gx_submit_cmds(void)
 			cp_read(CP_REG_RD_LO);
 		cp_wt = ((u32)cp_read(CP_REG_WT_HI) << 16) |
 			cp_read(CP_REG_WT_LO);
-		pr_info("gcn-gx: submit+1ms: SR=0x%04x RD=0x%08x WT=0x%08x PI_WPTR=0x%08x\n",
-			cp_read(CP_REG_STATUS), cp_rd, cp_wt,
-			pi_read(PI_REG_FIFO_WPTR));
+		pi_wptr = pi_read(PI_REG_FIFO_WPTR);
+		pr_info("gcn-gx: postGP: SR=0x%04x RDoff=0x%04x WToff=0x%04x PIoff=0x%04x\n",
+			cp_read(CP_REG_STATUS), cp_rd - phys_start,
+			cp_wt - phys_start, pi_wptr - phys_start);
 		logged_after_enable = true;
 	}
 }
