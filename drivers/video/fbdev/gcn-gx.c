@@ -578,9 +578,11 @@ EXPORT_SYMBOL_GPL(gcn_gx_copy_efb_to_xfb);
 static void gx_submit_cmds(void)
 {
 	static bool logged_submit;
+	static bool logged_after_enable;
 	u32 phys_start = (u32)virt_to_phys(gx_fifo_buf);
 	u32 phys_end   = phys_start + GX_FIFO_SIZE - 4;
 	u32 phys_wt;
+	u32 cp_rd, cp_wt;
 
 	/* Pad to 32-byte boundary (GP DMA requires 32-byte alignment) */
 	while (fifo_pos & 0x1f)
@@ -636,6 +638,17 @@ static void gx_submit_cmds(void)
 	 * the GP reading on this hardware.
 	 */
 	cp_write(CP_REG_CTRL, CP_CR_GPRESET | CP_CR_LINKEN);
+	if (!logged_after_enable) {
+		udelay(1000);
+		cp_rd = ((u32)cp_read(CP_REG_RD_HI) << 16) |
+			cp_read(CP_REG_RD_LO);
+		cp_wt = ((u32)cp_read(CP_REG_WT_HI) << 16) |
+			cp_read(CP_REG_WT_LO);
+		pr_info("gcn-gx: submit+1ms: SR=0x%04x RD=0x%08x WT=0x%08x PI_WPTR=0x%08x\n",
+			cp_read(CP_REG_STATUS), cp_rd, cp_wt,
+			pi_read(PI_REG_FIFO_WPTR));
+		logged_after_enable = true;
+	}
 }
 
 /*
