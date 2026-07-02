@@ -37,13 +37,20 @@
 #include <linux/delay.h>
 #include <linux/string.h>
 #include <asm/cacheflush.h>
+#include <asm/div64.h>
 
 #include "gcn-gx.h"
 
-/* MMIO mapped pointers */
-static u16 __iomem *cp_regs;		/* CP: 0xCC000000 */
-static u16 __iomem *pe_regs;		/* PE: 0xCC001000 */
-static u8  __iomem *wgpipe;		/* wgPipe: 0xCC008000 */
+static void __iomem *hw_base;		/* 0x0C000000, size GX_HW_MAP_SIZE */
+static u16 __iomem *cp_regs;		/* hw_base + 0x0000 */
+static u16 __iomem *pe_regs;		/* hw_base + 0x1000 */
+static u32 __iomem *pi_regs;		/* hw_base + 0x3000 (PI, 32-bit) */
+
+/* Byte offset of the next GX command byte within gx_fifo_buf.
+ * GX commands are written here directly; gx_submit_cmds() advances
+ * PI_FIFO_WPTR so the CP picks them up — bypasses the wgPipe entirely.
+ */
+static u32 fifo_pos;
 
 /* FIFO buffer — must be in memory the GPU can DMA, 32-byte aligned */
 static void *gx_fifo_buf_raw;
@@ -58,7 +65,7 @@ bool gx_accel_ready;
 EXPORT_SYMBOL_GPL(gx_accel_ready);
 
 /* ------------------------------------------------------------------ */
-/* Low-level CP / wgPipe helpers                                        */
+/* Low-level CP / PI / wgPipe helpers                                  */
 /* ------------------------------------------------------------------ */
 
 static inline void cp_write(int reg, u16 val)
@@ -72,65 +79,153 @@ static inline u16 cp_read(int reg)
 }
 
 /*
- * gx_load_bp_reg - write one BP register through the wgPipe.
- * The full 32-bit @val has the BP address in bits [31:24] and data
- * in bits [23:0].  Opcode 0x61 precedes the value.
+ * PI FIFO registers (u32, big-endian) at 0x0C003000 + offset:
+ *   index 2 (0x08): FIFO_BASE  — physical start of FIFO buffer
+ *   index 3 (0x0C): FIFO_END   — physical end of FIFO buffer
+ *   index 4 (0x10): FIFO_WPTR  — write pointer; wgPipe DMA bursts here
+ *   index 5 (0x14): FIFO_CTRL  — bit 0 = enable
+ * All read back as 0x00000000 after mini, meaning wgPipe WPTR = 0
+ * (physical address 0x00000000 = kernel exception vectors = crash on first burst).
  */
-static inline void gx_load_bp_reg(u32 val)
+#define PI_REG_FIFO_BASE	2
+#define PI_REG_FIFO_END		3
+#define PI_REG_FIFO_WPTR	4
+#define PI_REG_FIFO_CTRL	5
+#define PI_FIFO_CTRL_EN		BIT(0)
+
+static inline void pi_write(int reg, u32 val)
 {
-	iowrite8(GX_CMD_LOAD_BP_REG, wgpipe);
-	iowrite32be(val, wgpipe);
+	iowrite32be(val, pi_regs + reg);
 }
 
-/* gx_load_cp_reg - write one CP register (opcode 0x08) */
-static inline void gx_load_cp_reg(u8 reg, u32 val)
+static inline u32 pi_read(int reg)
 {
-	iowrite8(0x08, wgpipe);
-	iowrite8(reg, wgpipe);
-	iowrite32be(val, wgpipe);
-}
-
-/* gx_load_xf_reg - write one XF register (opcode 0x10, n=1) */
-static inline void gx_load_xf_reg(u32 addr, u32 val)
-{
-	iowrite8(0x10, wgpipe);
-	iowrite32be(addr & 0xffff, wgpipe);
-	iowrite32be(val, wgpipe);
+	return ioread32be(pi_regs + reg);
 }
 
 /*
- * gx_load_xf_regs_n - begin an XF block write.
- * Follow with @count u32 values written via iowrite32be(v, wgpipe).
+ * GX command byte writers — append to gx_fifo_buf at fifo_pos.
+ * gx_submit_cmds() later flushes dcache and advances PI_FIFO_WPTR
+ * so the CP picks up the commands, bypassing the wgPipe entirely.
+ * (Write-through PTEs for the wgPipe address cause the CPU to attempt
+ * a cache-line-fill READ from the write-only wgPipe hardware, hanging
+ * the bus; this approach avoids the problem.)
  */
-static inline void gx_load_xf_regs_n(u32 addr, u32 count)
+static inline void gx_wr8(u8 val)
 {
-	iowrite8(0x10, wgpipe);
-	iowrite32be(((count - 1) << 16) | (addr & 0xffff), wgpipe);
+	((u8 *)gx_fifo_buf)[fifo_pos++] = val;
 }
 
-/* wg_f32 - write a float32 to the wgPipe as raw IEEE 754 big-endian bits */
-static inline void wg_f32(float v)
+static inline void gx_wr16be(u16 val)
 {
-	u32 bits;
+	gx_wr8(val >> 8);
+	gx_wr8(val & 0xff);
+}
 
-	memcpy(&bits, &v, sizeof(bits));
-	iowrite32be(bits, wgpipe);
+static inline void gx_wr32be(u32 val)
+{
+	gx_wr8(val >> 24);
+	gx_wr8((val >> 16) & 0xff);
+	gx_wr8((val >> 8) & 0xff);
+	gx_wr8(val & 0xff);
+}
+
+static inline void gx_load_bp_reg(u32 val)
+{
+	gx_wr8(GX_CMD_LOAD_BP_REG);
+	gx_wr32be(val);
+}
+
+static inline void gx_load_cp_reg(u8 reg, u32 val)
+{
+	gx_wr8(0x08);
+	gx_wr8(reg);
+	gx_wr32be(val);
+}
+
+static inline void gx_load_xf_reg(u32 addr, u32 val)
+{
+	gx_wr8(0x10);
+	gx_wr32be(addr & 0xffff);
+	gx_wr32be(val);
+}
+
+static inline void gx_load_xf_regs_n(u32 addr, u32 count)
+{
+	gx_wr8(0x10);
+	gx_wr32be(((count - 1) << 16) | (addr & 0xffff));
+}
+
+static inline void wg_f32_bits(u32 bits)
+{
+	gx_wr32be(bits);
+}
+
+/* IEEE 754 constants */
+#define F32_ZERO	0x00000000U
+#define F32_ONE		0x3F800000U
+#define F32_NEG_ONE	0xBF800000U
+#define F32_16M		0x4B7FFFFFU	/* 16777215.0 */
+#define F32_NEG(b)	((b) ^ 0x80000000U)
+
+/* f32_from_u16 - encode a u16 integer as IEEE 754 single-precision bits */
+static u32 f32_from_u16(u16 n)
+{
+	u32 msb;
+
+	if (!n)
+		return F32_ZERO;
+	msb = 31 - __builtin_clz((u32)n);
+	return ((127 + msb) << 23) | (((u32)n << (23 - msb)) & 0x7FFFFF);
+}
+
+/*
+ * f32_div_u16 - compute num/den as IEEE 754 bits using 64-bit fixed-point.
+ * Precision: ~40 significant bits; error < 2^-17 relative (adequate for
+ * GPU viewport and projection math).
+ */
+static u32 f32_div_u16(u16 num, u16 den)
+{
+	u64 q;
+	int msb, exp;
+	u32 mant;
+
+	if (!num)
+		return F32_ZERO;
+	q = (u64)num << 40;
+	do_div(q, (u32)den);	/* avoids __udivdi3 on 32-bit PowerPC */
+	if (!q)
+		return F32_ZERO;
+	msb = 63 - __builtin_clzll(q);
+	exp = 127 + msb - 40;
+	if (exp <= 0 || exp >= 255)
+		return F32_ZERO;
+	if (msb >= 23)
+		mant = (u32)((q >> (msb - 23)) & 0x7FFFFF);
+	else
+		mant = (u32)((q << (23 - msb)) & 0x7FFFFF);
+	return ((u32)exp << 23) | mant;
 }
 
 /* gx_wait_idle - wait for the GP to finish processing the FIFO */
 static void gx_wait_idle(void)
 {
-	int timeout = 10000;
+	int timeout = 1000;
 
-	/* CP status: bit 2 = read idle, bit 3 = command idle */
+	/*
+	 * CP SR idle bits are at 0x0C00 (bits 10-11), not 0x0C (bits 2-3).
+	 * Confirmed empirically: SR=0x0C00 after CR=0 (GP disabled) and
+	 * after GPRESET+LINKEN when the FIFO is empty.
+	 */
 	while (timeout--) {
 		u16 sr = cp_read(CP_REG_STATUS);
 
-		if ((sr & 0x0c) == 0x0c)
+		if ((sr & 0x0c00) == 0x0c00)
 			return;
 		udelay(10);
 	}
-	pr_warn("gcn-gx: timed out waiting for GP idle\n");
+	pr_warn_once("gcn-gx: timed out waiting for GP idle (SR=0x%04x)\n",
+		     cp_read(CP_REG_STATUS));
 }
 
 /* ------------------------------------------------------------------ */
@@ -139,42 +234,32 @@ static void gx_wait_idle(void)
 
 static int gx_fifo_init(void)
 {
-	u32 phys_start, phys_end;
+	u32 phys_start = (u32)virt_to_phys(gx_fifo_buf);
+	u32 phys_end   = phys_start + GX_FIFO_SIZE - 4;
 
-	gx_fifo_buf_raw = kmalloc(GX_FIFO_SIZE + 32, GFP_KERNEL);
-	if (!gx_fifo_buf_raw)
-		return -ENOMEM;
+	pr_info("gcn-gx: fifo_init: phys=0x%08x\n", phys_start);
 
-	gx_fifo_buf = PTR_ALIGN(gx_fifo_buf_raw, 32);
-	phys_start = (u32)virt_to_phys(gx_fifo_buf);
-	phys_end   = phys_start + GX_FIFO_SIZE - 4;
+	/*
+	 * Disable CP reads.  Do not write CP BASE/END/WT/RD — writing those
+	 * registers causes deferred bus errors or immediate GP faults on this
+	 * hardware (bisected over many boots).
+	 *
+	 * Do not enable GPRESET here either: the first test showed that with
+	 * GPRESET active and an empty (zeroed) FIFO, a VI retrace wgPipe burst
+	 * feeds zero-bytes to the GP as invalid GX opcodes → crash.  GPRESET
+	 * is enabled by gx_submit_cmds() only after valid commands are queued.
+	 */
+	cp_write(CP_REG_CTRL, 0);
+	pr_info("gcn-gx: fifo_init: CR=0 SR=0x%04x\n", cp_read(CP_REG_STATUS));
 
-	cp_write(CP_REG_CTRL, 0);	/* stop CP before reconfiguring */
+	/*
+	 * All remaining setup (PI BASE/END/CTRL_EN, LINKEN, GPRESET) is
+	 * deferred to gx_submit_cmds().  LINKEN causes a deferred CP error
+	 * when set here because CP_BASE/END still hold mini's invalid values;
+	 * in interrupt context at submit time that error can't propagate.
+	 */
 
-	cp_write(CP_REG_FIFO_BASE_LO, phys_start & 0xffff);
-	cp_write(CP_REG_FIFO_BASE_HI, phys_start >> 16);
-	cp_write(CP_REG_FIFO_END_LO, phys_end & 0xffff);
-	cp_write(CP_REG_FIFO_END_HI, phys_end >> 16);
-
-	cp_write(CP_REG_FIFO_HIWM_LO, (GX_FIFO_SIZE - GX_FIFO_HIWATERMARK) & 0xffff);
-	cp_write(CP_REG_FIFO_HIWM_HI, (GX_FIFO_SIZE - GX_FIFO_HIWATERMARK) >> 16);
-	cp_write(CP_REG_FIFO_LOWM_LO, (GX_FIFO_SIZE >> 1) & 0xffff);
-	cp_write(CP_REG_FIFO_LOWM_HI, (GX_FIFO_SIZE >> 1) >> 16);
-
-	/* read/write pointers start at base, distance = 0 */
-	cp_write(CP_REG_RWDST_LO, 0);
-	cp_write(CP_REG_RWDST_HI, 0);
-	cp_write(CP_REG_WT_LO, phys_start & 0xffff);
-	cp_write(CP_REG_WT_HI, phys_start >> 16);
-	cp_write(CP_REG_RD_LO, phys_start & 0xffff);
-	cp_write(CP_REG_RD_HI, phys_start >> 16);
-
-	/* enable GP read + link CPU/GP FIFOs */
-	cp_write(CP_REG_CTRL, CP_CR_GPRESET | CP_CR_LINKEN);
-
-	/* signal PE done */
-	iowrite16(0x0f, pe_regs + PE_REG_DONE);
-
+	pr_info("gcn-gx: fifo_init: done\n");
 	return 0;
 }
 
@@ -257,8 +342,6 @@ static void gx_tile_rgb888(const u32 *src, u16 *dst, u32 width, u32 height)
  */
 static void gx_setup_2d_state(u16 width, u16 height)
 {
-	float fw = (float)width;
-	float fh = (float)height;
 	u32 xo, yo;
 
 	/* ---- BP 0x00: genMode ----
@@ -318,12 +401,12 @@ static void gx_setup_2d_state(u16 width, u16 height)
 	 *   x0=w/2, y0=-h/2, z=16777215, x1=w/2+342, y1=h/2+342, f=16777215
 	 */
 	gx_load_xf_regs_n(0x101a, 6);
-	wg_f32(fw * 0.5f);
-	wg_f32(fh * -0.5f);
-	wg_f32(16777215.0f);
-	wg_f32(fw * 0.5f + 342.0f);
-	wg_f32(fh * 0.5f + 342.0f);
-	wg_f32(16777215.0f);
+	wg_f32_bits(f32_from_u16(width >> 1));
+	wg_f32_bits(F32_NEG(f32_from_u16(height >> 1)));
+	wg_f32_bits(F32_16M);
+	wg_f32_bits(f32_from_u16((width >> 1) + 342));
+	wg_f32_bits(f32_from_u16((height >> 1) + 342));
+	wg_f32_bits(F32_16M);
 
 	/* ---- XF 0x1020-0x1026: orthographic projection ----
 	 * Maps pixel coords [0,w]×[0,h] to NDC [-1,1]×[-1,1] (Y flipped):
@@ -331,13 +414,13 @@ static void gx_setup_2d_state(u16 width, u16 height)
 	 *   mt[2][2]=-1,  mt[2][3]=0,  type=GX_ORTHOGRAPHIC=1
 	 */
 	gx_load_xf_regs_n(0x1020, 7);
-	wg_f32(2.0f / fw);
-	wg_f32(-1.0f);
-	wg_f32(-2.0f / fh);
-	wg_f32(1.0f);
-	wg_f32(-1.0f);
-	wg_f32(0.0f);
-	iowrite32be(1, wgpipe);		/* GX_ORTHOGRAPHIC */
+	wg_f32_bits(f32_div_u16(2, width));
+	wg_f32_bits(F32_NEG_ONE);
+	wg_f32_bits(F32_NEG(f32_div_u16(2, height)));
+	wg_f32_bits(F32_ONE);
+	wg_f32_bits(F32_NEG_ONE);
+	wg_f32_bits(F32_ZERO);
+	gx_wr32be(1);			/* GX_ORTHOGRAPHIC */
 
 	/* ---- CP 0x50/0x60: vertex descriptor ----
 	 * VCD_LO [10:9] = GX_VA_POS = GX_DIRECT(1) → 0x200
@@ -409,27 +492,27 @@ static void gx_setup_texture_rgb565(void *tile_buf, u16 width, u16 height)
  */
 static void gx_draw_fullscreen_quad(u16 width, u16 height)
 {
-	float fw = (float)width;
-	float fh = (float)height;
+	u32 fw = f32_from_u16(width);
+	u32 fh = f32_from_u16(height);
 
-	iowrite8(0x80, wgpipe);		/* GX_QUADS | vtxfmt 0 */
-	iowrite16be(4, wgpipe);
+	gx_wr8(0x80);			/* GX_QUADS | vtxfmt 0 */
+	gx_wr16be(4);
 
 	/* top-left */
-	wg_f32(0.0f); wg_f32(0.0f);
-	wg_f32(0.0f); wg_f32(0.0f);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
 
 	/* top-right */
-	wg_f32(fw);   wg_f32(0.0f);
-	wg_f32(fw);   wg_f32(0.0f);
+	wg_f32_bits(fw);       wg_f32_bits(F32_ZERO);
+	wg_f32_bits(fw);       wg_f32_bits(F32_ZERO);
 
 	/* bottom-right */
-	wg_f32(fw);   wg_f32(fh);
-	wg_f32(fw);   wg_f32(fh);
+	wg_f32_bits(fw);       wg_f32_bits(fh);
+	wg_f32_bits(fw);       wg_f32_bits(fh);
 
 	/* bottom-left */
-	wg_f32(0.0f); wg_f32(fh);
-	wg_f32(0.0f); wg_f32(fh);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(fh);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(fh);
 }
 
 /* ------------------------------------------------------------------ */
@@ -467,9 +550,6 @@ void gcn_gx_copy_efb_to_xfb(void *xfb, u16 width, u16 height)
 	       (GX_GM_1_0 << COPY_CTRL_GAMMA_SHIFT) |
 	       COPY_CTRL_EXECUTE;
 	gx_load_bp_reg(ctrl);
-
-	/* Flush wgPipe writes */
-	(void)cp_read(CP_REG_STATUS);
 }
 EXPORT_SYMBOL_GPL(gcn_gx_copy_efb_to_xfb);
 
@@ -478,21 +558,99 @@ EXPORT_SYMBOL_GPL(gcn_gx_copy_efb_to_xfb);
 /* ------------------------------------------------------------------ */
 
 /*
+ * gx_submit_cmds - flush commands in gx_fifo_buf to the CP.
+ *
+ * Pads to a 32-byte boundary (PI_FIFO_WPTR must be 32-byte aligned),
+ * flushes dcache so the CP's DMA sees the writes, then advances
+ * PI_FIFO_WPTR so the CP starts consuming commands.
+ */
+static void gx_submit_cmds(void)
+{
+	u32 phys_start = (u32)virt_to_phys(gx_fifo_buf);
+	u32 phys_end   = phys_start + GX_FIFO_SIZE - 4;
+
+	while (fifo_pos & 31)
+		gx_wr8(0x00);
+
+	flush_dcache_range((unsigned long)gx_fifo_buf,
+			   (unsigned long)gx_fifo_buf + fifo_pos);
+
+	/*
+	 * Wait for the GP to drain any previous frame, then reset the PI
+	 * ring buffer to the start of our buffer.  Done per-frame so the
+	 * 64KB FIFO is reused from position 0 each time.
+	 *
+	 * LINKEN and GPRESET are set here (interrupt context) not in
+	 * fifo_init: LINKEN while CP_BASE/END hold mini's stale values
+	 * causes a deferred CP bus error in task context (~50-100ms later).
+	 * In IRQ context that error cannot propagate before we return.
+	 */
+	gx_wait_idle();
+
+	pi_write(PI_REG_FIFO_BASE, phys_start & ~0x1fu);
+	pi_write(PI_REG_FIFO_END,  phys_end   & ~0x1fu);
+	pi_write(PI_REG_FIFO_WPTR, phys_start & ~0x1fu);
+	pi_write(PI_REG_FIFO_CTRL, PI_FIFO_CTRL_EN);
+
+	/*
+	 * Set CP_RD to our buffer before enabling GPRESET.  Writing CP_RD in
+	 * task context causes a deferred (~100ms timer-driven) crash because
+	 * CP_BASE/END still hold mini's stale values.  In IRQ context the
+	 * timer is masked so that mechanism cannot fire.  HI before LO keeps
+	 * the intermediate value (0x1200|old_LO) in valid MEM2 range.
+	 */
+	cp_write(CP_REG_RD_HI, phys_start >> 16);
+	cp_write(CP_REG_RD_LO, phys_start & 0xffff);
+
+	/* LINKEN: CP_WT = PI_WPTR = phys_start; GPRESET: GP reads from CP_RD */
+	cp_write(CP_REG_CTRL, CP_CR_GPRESET | CP_CR_LINKEN);
+
+	/* Advance WPTR past our commands — GP wakes and processes them */
+	pi_write(PI_REG_FIFO_WPTR, phys_start + fifo_pos);
+}
+
+/*
  * gcn_gx_blit_fb_rgb565 - blit a linear RGB565 virtual FB to the XFB.
  * Full pipeline: tile → bind texture → draw to EFB → EFB-to-XFB copy.
  */
 void gcn_gx_blit_fb_rgb565(const void *vfb, void *xfb, u16 width, u16 height)
 {
-	gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
+	static bool first = true;
 
+	if (first)
+		pr_info("gcn-gx: blit565: 1 %ux%u vfb=%p xfb=%p\n",
+			width, height, vfb, xfb);
+	fifo_pos = 0;
+
+	gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
 	flush_dcache_range((unsigned long)gx_tex_buf,
 			   (unsigned long)gx_tex_buf +
 			   (unsigned long)width * height * 2);
+	if (first)
+		pr_info("gcn-gx: blit565: 2 tiled\n");
 
 	gx_setup_2d_state(width, height);
+	if (first)
+		pr_info("gcn-gx: blit565: 3 2d state\n");
+
 	gx_setup_texture_rgb565(gx_tex_buf, width, height);
+	if (first)
+		pr_info("gcn-gx: blit565: 4 tex\n");
+
 	gx_draw_fullscreen_quad(width, height);
+	if (first)
+		pr_info("gcn-gx: blit565: 5 quad\n");
+
 	gcn_gx_copy_efb_to_xfb(xfb, width, height);
+	if (first)
+		pr_info("gcn-gx: blit565: 6 efb copy\n");
+
+	gx_submit_cmds();
+	if (first) {
+		pr_info("gcn-gx: blit565: 7 submitted wptr=0x%08x pos=%u\n",
+			(u32)virt_to_phys(gx_fifo_buf) + fifo_pos, fifo_pos);
+		first = false;
+	}
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
 
@@ -502,6 +660,8 @@ EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
  */
 void gcn_gx_blit_fb_rgb888(const void *vfb, void *xfb, u16 width, u16 height)
 {
+	fifo_pos = 0;
+
 	gx_tile_rgb888((const u32 *)vfb, (u16 *)gx_tex_buf, width, height);
 
 	flush_dcache_range((unsigned long)gx_tex_buf,
@@ -512,6 +672,7 @@ void gcn_gx_blit_fb_rgb888(const void *vfb, void *xfb, u16 width, u16 height)
 	gx_setup_texture_rgb565(gx_tex_buf, width, height);
 	gx_draw_fullscreen_quad(width, height);
 	gcn_gx_copy_efb_to_xfb(xfb, width, height);
+	gx_submit_cmds();
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb888);
 
@@ -522,56 +683,67 @@ EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb888);
 int gcn_gx_init(void)
 {
 	int ret;
-
-	cp_regs = ioremap(GX_CP_BASE, 0x80);
-	if (!cp_regs) {
-		pr_err("gcn-gx: failed to map CP registers\n");
-		return -ENOMEM;
-	}
-
-	pe_regs = ioremap(GX_PE_BASE, 0x10);
-	if (!pe_regs) {
-		pr_err("gcn-gx: failed to map PE registers\n");
-		ret = -ENOMEM;
-		goto err_pe;
-	}
-
-	wgpipe = ioremap(GX_WGPIPE_BASE, 0x20);
-	if (!wgpipe) {
-		pr_err("gcn-gx: failed to map wgPipe\n");
-		ret = -ENOMEM;
-		goto err_wg;
-	}
-
-	ret = gx_fifo_init();
-	if (ret) {
-		pr_err("gcn-gx: FIFO init failed\n");
-		goto err_fifo;
-	}
+	u32 fifo_phys;
 
 	/*
-	 * Pre-allocate the texture tile buffer: worst-case 640×480 RGB565 = 600KB.
-	 * Must be physically contiguous (GPU DMA) and 32-byte aligned.
+	 * Mini leaves PI_FIFO_WPTR=0x00000000.  VI hardware generates wgPipe
+	 * bursts during retrace; those bursts DMA to PI_FIFO_WPTR.  With
+	 * WPTR=0 they overwrite the exception vectors at physical 0.
+	 *
+	 * Order: alloc → ioremap → set WPTR → THEN any printk.
+	 * A single printk can trigger a VI retrace via console output.
 	 */
+	gx_fifo_buf_raw = kzalloc(GX_FIFO_SIZE + 32, GFP_KERNEL);
+	if (!gx_fifo_buf_raw)
+		return -ENOMEM;
+	gx_fifo_buf = PTR_ALIGN(gx_fifo_buf_raw, 32);
+	fifo_phys = (u32)virt_to_phys(gx_fifo_buf);
+	flush_dcache_range((unsigned long)gx_fifo_buf,
+			   (unsigned long)gx_fifo_buf + GX_FIFO_SIZE);
+
+	hw_base = ioremap(GX_HW_BASE, GX_HW_MAP_SIZE);
+	if (!hw_base) {
+		ret = -ENOMEM;
+		goto err_fifo;
+	}
+	cp_regs = (u16 __iomem *)(hw_base + GX_CP_OFFSET);
+	pe_regs = (u16 __iomem *)(hw_base + GX_PE_OFFSET);
+	pi_regs = (u32 __iomem *)(hw_base + 0x3000);
+
+	/* Safe now: redirect wgPipe bursts to our zeroed buffer */
+	iowrite32be(fifo_phys, pi_regs + PI_REG_FIFO_WPTR);
+
+	/* Now safe to printk */
+	pr_info("gcn-gx: init: A wptr=0x%08x hw_base=%p\n", fifo_phys, hw_base);
+
+	pr_info("gcn-gx: init: D fifo_init\n");
+	ret = gx_fifo_init();
+	pr_info("gcn-gx: init: E fifo_init ret=%d\n", ret);
+	if (ret)
+		goto err_hw;
+
+	pr_info("gcn-gx: init: F kmalloc tex buf\n");
 	gx_tex_raw = kmalloc(GX_TEX_BUF_SIZE + 32, GFP_KERNEL);
+	pr_info("gcn-gx: init: G kmalloc done ptr=%p\n", gx_tex_raw);
+	pr_info("gcn-gx: init: G1\n");
 	if (!gx_tex_raw) {
 		ret = -ENOMEM;
-		goto err_tex;
+		goto err_fifo;
 	}
 	gx_tex_buf = PTR_ALIGN(gx_tex_raw, 32);
+	pr_info("gcn-gx: init: G2 tb=%p\n", gx_tex_buf);
 
+	pr_info("gcn-gx: init: H done (accel ON)\n");
 	gx_accel_ready = true;
-	pr_info("gcn-gx: GX hardware FB blit ready\n");
 	return 0;
 
-err_tex:
-	kfree(gx_fifo_buf_raw);
 err_fifo:
-	iounmap(wgpipe);
-err_wg:
-	iounmap(pe_regs);
-err_pe:
-	iounmap(cp_regs);
+	kfree(gx_fifo_buf_raw);
+	gx_fifo_buf_raw = NULL;
+
+err_hw:
+	iounmap(hw_base);
+	hw_base = NULL;
 	return ret;
 }
 EXPORT_SYMBOL_GPL(gcn_gx_init);
@@ -584,8 +756,9 @@ void gcn_gx_exit(void)
 
 	kfree(gx_tex_raw);
 	kfree(gx_fifo_buf_raw);
-	iounmap(wgpipe);
-	iounmap(pe_regs);
-	iounmap(cp_regs);
+	if (hw_base) {
+		iounmap(hw_base);
+		hw_base = NULL;
+	}
 }
 EXPORT_SYMBOL_GPL(gcn_gx_exit);

@@ -17,15 +17,20 @@
 
 #include <linux/types.h>
 
-/* GX hardware MMIO base addresses (physical) */
-#define GX_CP_BASE		0xCC000000	/* Command Processor */
-#define GX_PE_BASE		0xCC001000	/* Pixel Engine */
-#define GX_WGPIPE_BASE		0xCC008000	/* Write-Gather Pipe */
+/* Hollywood hardware base (physical).  One ioremap covers all GX sub-units.
+ * On Wii/GC under Linux the registers are at 0x0C000000, not the 0xCC000000
+ * BAT virtual address used in homebrew environments. See wii.dts ranges.
+ */
+#define GX_HW_BASE		0x0C000000
+#define GX_HW_MAP_SIZE		0x9000		/* covers CP/PE/PI; wgPipe page included but unused */
+#define GX_CP_OFFSET		0x0000		/* Command Processor */
+#define GX_PE_OFFSET		0x1000		/* Pixel Engine */
+#define GX_WGPIPE_OFFSET	0x8000		/* Write-Gather Pipe */
 
 /* CP register indices (16-bit, word-indexed) */
 #define CP_REG_STATUS		0	/* SR: status */
 #define CP_REG_CTRL		1	/* CR: control */
-#define CP_REG_CLR		3	/* clear */
+#define CP_REG_CLR		2	/* clear (byte 0x04) */
 #define CP_REG_FIFO_BASE_LO	16
 #define CP_REG_FIFO_BASE_HI	17
 #define CP_REG_FIFO_END_LO	18
@@ -76,8 +81,8 @@
 #define GX_FIFO_SIZE		(64 * 1024)
 #define GX_FIFO_HIWATERMARK	(16 * 1024)
 
-/* Texture tile buffer: max FB is 640×480 RGB565 = 614,400 bytes */
-#define GX_TEX_BUF_SIZE		(640 * 480 * 2)
+/* Texture tile buffer: max FB is 640×576 (PAL) RGB565 = 737,280 bytes */
+#define GX_TEX_BUF_SIZE		(640 * 576 * 2)
 
 /* gx_accel_ready is set to true by gcn_gx_init() on success */
 extern bool gx_accel_ready;
