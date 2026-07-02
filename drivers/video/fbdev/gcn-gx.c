@@ -237,6 +237,24 @@ static void gx_wait_idle(void)
 		     cp_read(CP_REG_STATUS));
 }
 
+static void gx_wait_fifo_empty(void)
+{
+	int timeout = 1000;
+
+	while (timeout--) {
+		u32 rd = ((u32)cp_read(CP_REG_RD_HI) << 16) |
+			cp_read(CP_REG_RD_LO);
+		u32 wt = ((u32)cp_read(CP_REG_WT_HI) << 16) |
+			cp_read(CP_REG_WT_LO);
+
+		if (rd == wt)
+			return;
+		udelay(10);
+	}
+	pr_warn_once("gcn-gx: timed out waiting for FIFO empty (SR=0x%04x)\n",
+		     cp_read(CP_REG_STATUS));
+}
+
 /* ------------------------------------------------------------------ */
 /* CP / FIFO initialisation                                             */
 /* ------------------------------------------------------------------ */
@@ -670,6 +688,8 @@ static void gx_submit_cmds(void)
 			cp_wt - phys_start, pi_wptr - phys_start);
 		logged_after_enable = true;
 	}
+	gx_wait_fifo_empty();
+	cp_write(CP_REG_CTRL, 0);
 }
 
 /*
