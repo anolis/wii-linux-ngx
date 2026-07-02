@@ -1471,24 +1471,28 @@ static irqreturn_t vi_irq_handler(int irq, void *dev)
 	val = in_be32(io_base + VI_DI1);
 	if (vi_dix_get_irq(val)) {
 		ctl->in_vtrace = 1;
-		
 		switch (vfb_format) {
 			case V4L2_PIX_FMT_YUYV:
 				/* do nothing */
 			break;
 			case V4L2_PIX_FMT_RGB565:
+				/*
+				 * DIAGNOSTIC: always run SW transcode to keep
+				 * the display alive. If CP writes in the blit
+				 * cause a real machine check the display will
+				 * freeze here; if only the GP fails to execute
+				 * the display keeps scrolling. Remove once GP
+				 * execution is confirmed working.
+				 */
+				vi_transcode_RGB565(ctl);
 				if (gx_accel_ready)
-					gcn_gx_blit_fb_rgb565(vfb_mem, fb_mem,
+					gcn_gx_blit_fb_rgb565(vfb_mem, (u32)gx_fb_start,
 							      info->var.xres,
 							      info->var.yres);
-				else if (vfb_diff)
-					vi_transcode_RGB565_diff(ctl);
-				else
-					vi_transcode_RGB565(ctl);
 				break;
 			case PIX_FMT_RGB888:
 				if (gx_accel_ready)
-					gcn_gx_blit_fb_rgb888(vfb_mem, fb_mem,
+					gcn_gx_blit_fb_rgb888(vfb_mem, (u32)gx_fb_start,
 							      info->var.xres,
 							      info->var.yres);
 				else if (vfb_diff)
@@ -2391,6 +2395,9 @@ static int vifb_do_probe(struct device *dev,
 	if (gcn_gx_init() != 0)
 		drv_printk(KERN_WARNING,
 			   "GX accel unavailable, using SW transcode\n");
+
+	pr_info("gcnfb: probe done vfb_format=0x%x gx=%d\n",
+		vfb_format, gx_accel_ready);
 
 	return 0;
 

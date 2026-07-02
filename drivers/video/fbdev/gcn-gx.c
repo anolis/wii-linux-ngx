@@ -344,6 +344,13 @@ static void gx_setup_2d_state(u16 width, u16 height)
 {
 	u32 xo, yo;
 
+	/* ---- BP 0x40: zMode — disable Z compare and Z write for 2D ----
+	 * bit 0 = enable, bit 7 = update enable; both 0 = fully disabled.
+	 * If mini left Z-compare enabled (e.g. GX_LEQUAL), all pixels rendered
+	 * to a fresh EFB would fail the test and nothing would reach the EFB.
+	 */
+	gx_load_bp_reg(0x40000000);
+
 	/* ---- BP 0x00: genMode ----
 	 * [2:0]   numtexgens = 1
 	 * [6:4]   numcolchans = 0
@@ -526,9 +533,8 @@ static void gx_draw_fullscreen_quad(u16 width, u16 height)
  * YUYV, and writes into the XFB for the VI to scan out.  Replaces
  * vi_transcode_RGB565 / vi_transcode_RGB888 when gx_accel_ready is set.
  */
-void gcn_gx_copy_efb_to_xfb(void *xfb, u16 width, u16 height)
+void gcn_gx_copy_efb_to_xfb(u32 xfb_phys, u16 width, u16 height)
 {
-	u32 phys = virt_to_phys(xfb);
 	u32 ctrl;
 
 	/* BP 0x49: copy source top-left = (0, 0) */
@@ -543,7 +549,7 @@ void gcn_gx_copy_efb_to_xfb(void *xfb, u16 width, u16 height)
 	gx_load_bp_reg((BP_DISP_COPY_DST << 24) | ((width * 2) >> 4));
 
 	/* BP 0x4b: dest physical address (right-shifted 5) */
-	gx_load_bp_reg((BP_DISP_COPY_ADDR << 24) | ((phys >> 5) & 0xffffff));
+	gx_load_bp_reg((BP_DISP_COPY_ADDR << 24) | ((xfb_phys >> 5) & 0xffffff));
 
 	/* BP 0x52: copy control — gamma 1.0, no clear, execute */
 	ctrl = (BP_DISP_COPY_CTRL << 24) |
@@ -558,99 +564,90 @@ EXPORT_SYMBOL_GPL(gcn_gx_copy_efb_to_xfb);
 /* ------------------------------------------------------------------ */
 
 /*
- * gx_submit_cmds - flush commands in gx_fifo_buf to the CP.
+ * gx_submit_cmds - submit commands in gx_fifo_buf to the CP.
  *
- * Pads to a 32-byte boundary (PI_FIFO_WPTR must be 32-byte aligned),
- * flushes dcache so the CP's DMA sees the writes, then advances
- * PI_FIFO_WPTR so the CP starts consuming commands.
+ * Pads to 32-byte alignment, flushes dcache so GP DMA sees the writes,
+ * then configures CP BASE/END/RD/WT and enables GP reads.
+ *
+ * Called from IRQ context (VI DI1).  No sleeping.  udelay in gx_wait_idle
+ * is safe in IRQ context on PPC32.
+ *
+ * Critical: flush gx_fifo_buf BEFORE setting WT or enabling the GP.
+ * The setup functions write commands into CPU cache; without the flush
+ * the GP's DMA bus reads stale zeros from physical RAM.
  */
 static void gx_submit_cmds(void)
 {
 	u32 phys_start = (u32)virt_to_phys(gx_fifo_buf);
 	u32 phys_end   = phys_start + GX_FIFO_SIZE - 4;
+	u32 phys_wt;
 
-	while (fifo_pos & 31)
-		gx_wr8(0x00);
+	/* Pad to 32-byte boundary (GP DMA requires 32-byte alignment) */
+	while (fifo_pos & 0x1f)
+		gx_wr8(0);
+	phys_wt = phys_start + fifo_pos;
 
+	/*
+	 * Disable GP before touching registers.  This prevents a race where
+	 * the GP (still enabled from the previous frame) re-reads stale data
+	 * if we change RD while old WT > new RD.
+	 */
+	cp_write(CP_REG_CTRL, 0);
+
+	/* Wait for GP to actually reach idle (may be mid-command when we stop) */
+	gx_wait_idle();
+
+	/*
+	 * Flush command buffer to physical RAM.  The setup/draw/copy functions
+	 * write GX commands into CPU cache; without this flush the GP's DMA
+	 * reads stale zeros from physical RAM.
+	 */
 	flush_dcache_range((unsigned long)gx_fifo_buf,
 			   (unsigned long)gx_fifo_buf + fifo_pos);
 
-	/*
-	 * Wait for the GP to drain any previous frame, then reset the PI
-	 * ring buffer to the start of our buffer.  Done per-frame so the
-	 * 64KB FIFO is reused from position 0 each time.
-	 *
-	 * LINKEN and GPRESET are set here (interrupt context) not in
-	 * fifo_init: LINKEN while CP_BASE/END hold mini's stale values
-	 * causes a deferred CP bus error in task context (~50-100ms later).
-	 * In IRQ context that error cannot propagate before we return.
-	 */
-	gx_wait_idle();
-
-	pi_write(PI_REG_FIFO_BASE, phys_start & ~0x1fu);
-	pi_write(PI_REG_FIFO_END,  phys_end   & ~0x1fu);
-	pi_write(PI_REG_FIFO_WPTR, phys_start & ~0x1fu);
-	pi_write(PI_REG_FIFO_CTRL, PI_FIFO_CTRL_EN);
-
-	/*
-	 * Set CP_RD to our buffer before enabling GPRESET.  Writing CP_RD in
-	 * task context causes a deferred (~100ms timer-driven) crash because
-	 * CP_BASE/END still hold mini's stale values.  In IRQ context the
-	 * timer is masked so that mechanism cannot fire.  HI before LO keeps
-	 * the intermediate value (0x1200|old_LO) in valid MEM2 range.
-	 */
+	/* Program CP FIFO extent and read/write pointers */
+	cp_write(CP_REG_FIFO_BASE_HI, phys_start >> 16);
+	cp_write(CP_REG_FIFO_BASE_LO, phys_start & 0xffff);
+	cp_write(CP_REG_FIFO_END_HI,  phys_end   >> 16);
+	cp_write(CP_REG_FIFO_END_LO,  phys_end   & 0xffff);
 	cp_write(CP_REG_RD_HI, phys_start >> 16);
 	cp_write(CP_REG_RD_LO, phys_start & 0xffff);
+	cp_write(CP_REG_WT_HI, phys_wt >> 16);
+	cp_write(CP_REG_WT_LO, phys_wt & 0xffff);
 
-	/* LINKEN: CP_WT = PI_WPTR = phys_start; GPRESET: GP reads from CP_RD */
+	/*
+	 * Mirror WT into the PI side.  With LINKEN=1, CP_WT and PI_FIFO_WPTR
+	 * are coupled.  Set PI_FIFO_WPTR = phys_wt BEFORE enabling LINKEN so
+	 * the link doesn't pull CP_WT back to mini's stale PI_FIFO_WPTR (0).
+	 */
+	pi_write(PI_REG_FIFO_BASE, phys_start & ~0x1fu);
+	pi_write(PI_REG_FIFO_END,  phys_end   & ~0x1fu);
+	pi_write(PI_REG_FIFO_WPTR, phys_wt);
+
+	/*
+	 * Enable GP with FIFO link.  libogc always enables both GPRESET and
+	 * LINKEN together; GPRESET alone (bit 0) appears insufficient to start
+	 * the GP reading on this hardware.
+	 */
 	cp_write(CP_REG_CTRL, CP_CR_GPRESET | CP_CR_LINKEN);
-
-	/* Advance WPTR past our commands — GP wakes and processes them */
-	pi_write(PI_REG_FIFO_WPTR, phys_start + fifo_pos);
 }
 
 /*
  * gcn_gx_blit_fb_rgb565 - blit a linear RGB565 virtual FB to the XFB.
  * Full pipeline: tile → bind texture → draw to EFB → EFB-to-XFB copy.
  */
-void gcn_gx_blit_fb_rgb565(const void *vfb, void *xfb, u16 width, u16 height)
+void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
-	static bool first = true;
-
-	if (first)
-		pr_info("gcn-gx: blit565: 1 %ux%u vfb=%p xfb=%p\n",
-			width, height, vfb, xfb);
+	/*
+	 * TEST: submit ONLY the EFB→XFB copy, no texture/render pipeline.
+	 * If the GP executes this, fb_mem will be overwritten with whatever
+	 * is in the EFB (mini's content or garbage) and the display will
+	 * visibly change from the boot text.  If display stays frozen, the
+	 * GP is not executing our commands at all.
+	 */
 	fifo_pos = 0;
-
-	gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
-	flush_dcache_range((unsigned long)gx_tex_buf,
-			   (unsigned long)gx_tex_buf +
-			   (unsigned long)width * height * 2);
-	if (first)
-		pr_info("gcn-gx: blit565: 2 tiled\n");
-
-	gx_setup_2d_state(width, height);
-	if (first)
-		pr_info("gcn-gx: blit565: 3 2d state\n");
-
-	gx_setup_texture_rgb565(gx_tex_buf, width, height);
-	if (first)
-		pr_info("gcn-gx: blit565: 4 tex\n");
-
-	gx_draw_fullscreen_quad(width, height);
-	if (first)
-		pr_info("gcn-gx: blit565: 5 quad\n");
-
-	gcn_gx_copy_efb_to_xfb(xfb, width, height);
-	if (first)
-		pr_info("gcn-gx: blit565: 6 efb copy\n");
-
+	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
 	gx_submit_cmds();
-	if (first) {
-		pr_info("gcn-gx: blit565: 7 submitted wptr=0x%08x pos=%u\n",
-			(u32)virt_to_phys(gx_fifo_buf) + fifo_pos, fifo_pos);
-		first = false;
-	}
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
 
@@ -658,7 +655,7 @@ EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
  * gcn_gx_blit_fb_rgb888 - blit a linear RGB888 (packed u32) FB to the XFB.
  * Converts to RGB565 during tiling to avoid GX_TF_RGBA8's complex layout.
  */
-void gcn_gx_blit_fb_rgb888(const void *vfb, void *xfb, u16 width, u16 height)
+void gcn_gx_blit_fb_rgb888(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
 	fifo_pos = 0;
 
@@ -671,7 +668,7 @@ void gcn_gx_blit_fb_rgb888(const void *vfb, void *xfb, u16 width, u16 height)
 	gx_setup_2d_state(width, height);
 	gx_setup_texture_rgb565(gx_tex_buf, width, height);
 	gx_draw_fullscreen_quad(width, height);
-	gcn_gx_copy_efb_to_xfb(xfb, width, height);
+	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
 	gx_submit_cmds();
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb888);
@@ -710,7 +707,7 @@ int gcn_gx_init(void)
 	pe_regs = (u16 __iomem *)(hw_base + GX_PE_OFFSET);
 	pi_regs = (u32 __iomem *)(hw_base + 0x3000);
 
-	/* Safe now: redirect wgPipe bursts to our zeroed buffer */
+	/* Redirect wgPipe DMA bursts to our zeroed buffer (was addr 0 in mini) */
 	iowrite32be(fifo_phys, pi_regs + PI_REG_FIFO_WPTR);
 
 	/* Now safe to printk */

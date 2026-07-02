@@ -2,7 +2,8 @@
 # Makefile for the linux kernel.
 #
 
-CFLAGS_ptrace.o		+= -DUTS_MACHINE='"$(UTS_MACHINE)"'
+CFLAGS_ptrace.o		+= -DUTS_MACHINE='"$(UTS_MACHINE)"' -Wno-array-bounds
+CFLAGS_vdso.o		+= -Wno-array-bounds
 
 subdir-ccflags-$(CONFIG_PPC_WERROR) := -Werror
 
