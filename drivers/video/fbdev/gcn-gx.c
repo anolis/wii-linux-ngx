@@ -623,6 +623,7 @@ static void gx_submit_cmds(void)
 	pi_write(PI_REG_FIFO_BASE, phys_start & ~0x1fu);
 	pi_write(PI_REG_FIFO_END,  phys_end   & ~0x1fu);
 	pi_write(PI_REG_FIFO_WPTR, phys_wt);
+	pi_write(PI_REG_FIFO_CTRL, PI_FIFO_CTRL_EN);
 
 	/*
 	 * Enable GP with FIFO link.  libogc always enables both GPRESET and
