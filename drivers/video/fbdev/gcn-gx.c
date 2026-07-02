@@ -604,15 +604,15 @@ static void gx_submit_cmds(void)
 		logged_submit = true;
 	}
 
+	/* Wait for the previous FIFO to drain before reprogramming pointers. */
+	gx_wait_idle();
+
 	/*
 	 * Disable GP before touching registers.  This prevents a race where
 	 * the GP (still enabled from the previous frame) re-reads stale data
 	 * if we change RD while old WT > new RD.
 	 */
 	cp_write(CP_REG_CTRL, 0);
-
-	/* Wait for GP to actually reach idle (may be mid-command when we stop) */
-	gx_wait_idle();
 
 	/*
 	 * Flush command buffer to physical RAM.  The setup/draw/copy functions
