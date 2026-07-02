@@ -72,12 +72,12 @@ EXPORT_SYMBOL_GPL(gx_accel_ready);
 
 static inline void cp_write(int reg, u16 val)
 {
-	iowrite16(val, cp_regs + reg);
+	out_be16(cp_regs + reg, val);
 }
 
 static inline u16 cp_read(int reg)
 {
-	return ioread16(cp_regs + reg);
+	return in_be16(cp_regs + reg);
 }
 
 /*
