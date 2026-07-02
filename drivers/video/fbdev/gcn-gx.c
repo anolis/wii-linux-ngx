@@ -723,7 +723,7 @@ int gcn_gx_init(void)
 	 * Order: alloc → ioremap → set WPTR → THEN any printk.
 	 * A single printk can trigger a VI retrace via console output.
 	 */
-	gx_fifo_buf_raw = kzalloc(GX_FIFO_SIZE + 32, GFP_KERNEL);
+	gx_fifo_buf_raw = kzalloc(GX_FIFO_SIZE + 32, GFP_KERNEL | GFP_DMA);
 	if (!gx_fifo_buf_raw)
 		return -ENOMEM;
 	gx_fifo_buf = PTR_ALIGN(gx_fifo_buf_raw, 32);
