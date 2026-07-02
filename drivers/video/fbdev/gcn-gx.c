@@ -215,14 +215,14 @@ static void gx_wait_idle(void)
 	int timeout = 1000;
 
 	/*
-	 * SR=0x0800 is observed after stopping the GP with CP_CTRL=0 on Wii.
-	 * Treat it as idle/stopped; waiting for both 0x0400 and 0x0800 causes
-	 * a false timeout before every submit.
+	 * With endian-correct CP access, SR bit 3 is observed when the GP is
+	 * stopped/idle.  SR=0x0008 appears after CP_CTRL=0; SR=0x000c appears
+	 * after the GP has consumed the submitted FIFO.
 	 */
 	while (timeout--) {
 		u16 sr = cp_read(CP_REG_STATUS);
 
-		if (sr & 0x0800)
+		if (sr & 0x0008)
 			return;
 		udelay(10);
 	}
