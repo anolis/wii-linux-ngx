@@ -215,14 +215,14 @@ static void gx_wait_idle(void)
 	int timeout = 1000;
 
 	/*
-	 * With endian-correct CP access, SR bit 3 is observed when the GP is
-	 * stopped/idle.  SR=0x0008 appears after CP_CTRL=0; SR=0x000c appears
-	 * after the GP has consumed the submitted FIFO.
+	 * With endian-correct CP access, SR bit 3 is observed after CP_CTRL=0
+	 * and SR bit 2 is observed after the GP has consumed the submitted
+	 * FIFO.  Either state is quiescent enough to reprogram the FIFO.
 	 */
 	while (timeout--) {
 		u16 sr = cp_read(CP_REG_STATUS);
 
-		if (sr & 0x0008)
+		if (sr & 0x000c)
 			return;
 		udelay(10);
 	}
