@@ -639,14 +639,16 @@ static void gx_submit_cmds(void)
  */
 void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
-	/*
-	 * TEST: submit ONLY the EFB→XFB copy, no texture/render pipeline.
-	 * If the GP executes this, fb_mem will be overwritten with whatever
-	 * is in the EFB (mini's content or garbage) and the display will
-	 * visibly change from the boot text.  If display stays frozen, the
-	 * GP is not executing our commands at all.
-	 */
 	fifo_pos = 0;
+
+	gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
+	flush_dcache_range((unsigned long)gx_tex_buf,
+			   (unsigned long)gx_tex_buf +
+			   (unsigned long)width * height * 2);
+
+	gx_setup_2d_state(width, height);
+	gx_setup_texture_rgb565(gx_tex_buf, width, height);
+	gx_draw_fullscreen_quad(width, height);
 	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
 	gx_submit_cmds();
 }
