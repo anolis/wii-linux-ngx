@@ -213,14 +213,14 @@ static void gx_wait_idle(void)
 	int timeout = 1000;
 
 	/*
-	 * CP SR idle bits are at 0x0C00 (bits 10-11), not 0x0C (bits 2-3).
-	 * Confirmed empirically: SR=0x0C00 after CR=0 (GP disabled) and
-	 * after GPRESET+LINKEN when the FIFO is empty.
+	 * SR=0x0800 is observed after stopping the GP with CP_CTRL=0 on Wii.
+	 * Treat it as idle/stopped; waiting for both 0x0400 and 0x0800 causes
+	 * a false timeout before every submit.
 	 */
 	while (timeout--) {
 		u16 sr = cp_read(CP_REG_STATUS);
 
-		if ((sr & 0x0c00) == 0x0c00)
+		if (sr & 0x0800)
 			return;
 		udelay(10);
 	}
@@ -235,7 +235,6 @@ static void gx_wait_idle(void)
 static int gx_fifo_init(void)
 {
 	u32 phys_start = (u32)virt_to_phys(gx_fifo_buf);
-	u32 phys_end   = phys_start + GX_FIFO_SIZE - 4;
 
 	pr_info("gcn-gx: fifo_init: phys=0x%08x\n", phys_start);
 
@@ -578,6 +577,7 @@ EXPORT_SYMBOL_GPL(gcn_gx_copy_efb_to_xfb);
  */
 static void gx_submit_cmds(void)
 {
+	static bool logged_submit;
 	u32 phys_start = (u32)virt_to_phys(gx_fifo_buf);
 	u32 phys_end   = phys_start + GX_FIFO_SIZE - 4;
 	u32 phys_wt;
@@ -586,6 +586,11 @@ static void gx_submit_cmds(void)
 	while (fifo_pos & 0x1f)
 		gx_wr8(0);
 	phys_wt = phys_start + fifo_pos;
+	if (!logged_submit) {
+		pr_info("gcn-gx: submit: base=0x%08x wt=0x%08x pos=%u SR=0x%04x\n",
+			phys_start, phys_wt, fifo_pos, cp_read(CP_REG_STATUS));
+		logged_submit = true;
+	}
 
 	/*
 	 * Disable GP before touching registers.  This prevents a race where
