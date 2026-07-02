@@ -38,6 +38,7 @@
 #include <linux/string.h>
 #include <asm/cacheflush.h>
 #include <asm/div64.h>
+#include <asm/page.h>
 
 #include "gcn-gx.h"
 
@@ -53,6 +54,7 @@ static u32 __iomem *pi_regs;		/* hw_base + 0x3000 (PI, 32-bit) */
 static u32 fifo_pos;
 
 /* FIFO buffer — must be in memory the GPU can DMA, 32-byte aligned */
+#define GX_FIFO_MEM1_PHYS	0x01684000
 static void *gx_fifo_buf_raw;
 static void *gx_fifo_buf;
 
@@ -723,10 +725,9 @@ int gcn_gx_init(void)
 	 * Order: alloc → ioremap → set WPTR → THEN any printk.
 	 * A single printk can trigger a VI retrace via console output.
 	 */
-	gx_fifo_buf_raw = kzalloc(GX_FIFO_SIZE + 32, GFP_KERNEL | GFP_DMA);
-	if (!gx_fifo_buf_raw)
-		return -ENOMEM;
-	gx_fifo_buf = PTR_ALIGN(gx_fifo_buf_raw, 32);
+	gx_fifo_buf_raw = NULL;
+	gx_fifo_buf = (void *)__va(GX_FIFO_MEM1_PHYS);
+	memset(gx_fifo_buf, 0, GX_FIFO_SIZE);
 	fifo_phys = (u32)virt_to_phys(gx_fifo_buf);
 	flush_dcache_range((unsigned long)gx_fifo_buf,
 			   (unsigned long)gx_fifo_buf + GX_FIFO_SIZE);
@@ -768,8 +769,8 @@ int gcn_gx_init(void)
 	return 0;
 
 err_fifo:
-	kfree(gx_fifo_buf_raw);
 	gx_fifo_buf_raw = NULL;
+	gx_fifo_buf = NULL;
 
 err_hw:
 	iounmap(hw_base);
@@ -785,7 +786,10 @@ void gcn_gx_exit(void)
 	cp_write(CP_REG_CTRL, 0);
 
 	kfree(gx_tex_raw);
-	kfree(gx_fifo_buf_raw);
+	if (gx_fifo_buf_raw)
+		kfree(gx_fifo_buf_raw);
+	gx_fifo_buf_raw = NULL;
+	gx_fifo_buf = NULL;
 	if (hw_base) {
 		iounmap(hw_base);
 		hw_base = NULL;
