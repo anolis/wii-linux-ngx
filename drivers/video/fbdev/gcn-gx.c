@@ -221,8 +221,15 @@ static void gx_wait_idle(void)
 	 */
 	while (timeout--) {
 		u16 sr = cp_read(CP_REG_STATUS);
+		u32 rd, wt;
 
 		if (sr & 0x000c)
+			return;
+		rd = ((u32)cp_read(CP_REG_RD_HI) << 16) |
+			cp_read(CP_REG_RD_LO);
+		wt = ((u32)cp_read(CP_REG_WT_HI) << 16) |
+			cp_read(CP_REG_WT_LO);
+		if (rd == wt)
 			return;
 		udelay(10);
 	}
