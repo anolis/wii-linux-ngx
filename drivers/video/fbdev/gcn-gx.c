@@ -213,7 +213,7 @@ static u32 f32_div_u16(u16 num, u16 den)
 
 static void gx_load_identity_pos_mtx0(void)
 {
-	/* GX_LoadPosMtxImm(identity, GX_PNMTX0) */
+	/* GX_LoadPosMtxImm(identity, GX_PNMTX0): XF 0x0000–0x000B */
 	gx_load_xf_regs_n(0x0000, 12);
 	wg_f32_bits(F32_ONE);  wg_f32_bits(F32_ZERO);
 	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
@@ -224,6 +224,23 @@ static void gx_load_identity_pos_mtx0(void)
 
 	/* GX_SetCurrentMtx(GX_PNMTX0): XF 0x1018 = matrix index 0 */
 	gx_load_xf_reg(0x1018, 0);
+
+	/*
+	 * GX_LoadTexMtxImm(identity, GX_TEXMTX0, GX_MTX2x4): XF 0x0078–0x007F
+	 *
+	 * TEXMTX0 starts immediately after PNMTX9 (10 matrices × 12 regs =
+	 * 0x78 regs).  Hardware reset value is undefined; garbage here causes
+	 * the XF to produce a q ≈ 0 (or NaN) homogeneous texcoord when using
+	 * GX_TG_MTX3x4, which permanently stalls the rasterizer perspective-
+	 * divide unit when actual vertex TEX0 data drives the transform.
+	 *
+	 * Identity 2×4 maps (S, T, 1, 0) → (S, T) unchanged.
+	 */
+	gx_load_xf_regs_n(0x0078, 8);
+	wg_f32_bits(F32_ONE);  wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ONE);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
 }
 
 /* gx_wait_idle - wait for the GP to finish processing the FIFO */
@@ -460,10 +477,14 @@ static void gx_setup_2d_state(u16 width, u16 height)
 	gx_load_xf_reg(0x103f, 1);
 
 	/* ---- XF 0x1040: texCoordGen[0] ----
-	 * GX_TG_MTX2x4, src=GX_TG_TEX0 (vtxrow=5, stq=0)
-	 * texcoords = vtxrow << 7 = 0x280
+	 * GX_TG_MTX2x4 (type=1), src=GX_TG_TEX0 (srcrow=4):
+	 *   (4 << 7) | 1 = 0x201
+	 * MTX2x4 produces (s,t) with no homogeneous q — avoids the
+	 * rasterizer stall caused by q=0 from uninitialized TEXMTX0.
+	 * (The prior value 0x280 = MTX3x4 + TEX1 source was wrong on
+	 * both counts.)
 	 */
-	gx_load_xf_reg(0x1040, 0x280);
+	gx_load_xf_reg(0x1040, 0x201);
 
 	/* ---- XF 0x1050: texCoordGen2[0] ----
 	 * normalize=0, postmtx=GX_DTTIDENTITY=63
@@ -541,7 +562,7 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0x25000000);
 
 	gx_load_xf_reg(0x103f, 1);
-	gx_load_xf_reg(0x1040, 0x280);
+	gx_load_xf_reg(0x1040, 0x201);	/* MTX2x4, src=TEX0: (4<<7)|1 */
 	gx_load_xf_reg(0x1050, 0x3F);
 	gx_load_identity_pos_mtx0();
 
