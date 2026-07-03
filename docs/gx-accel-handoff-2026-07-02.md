@@ -35,7 +35,7 @@ starting at frame 2.
 `d1be38b8227c4a48e19ad6bb0454cbae1a25f7caf7ecc2d10590e04b8f4d8920`.
 This is the XF-from-position diagnostic: XF 0x103F=1, XF 0x1040=0x000
 (`sourcerow=GX_TG_POS`, projection=0), VCD TEX0 disabled, position-only quad.
-Awaiting boot result.
+Result: drains cleanly through frame 360.
 
 ## Current gcn_gx_blit_fb_rgb565 pipeline (diagnostic)
 
@@ -62,7 +62,7 @@ No tiling, no texture bind. EFB content = CC_ZERO (zero luma). Screen goes black
 | 1 | 1 | DIRECT | [0,1] (norm) + 0x201 | ✗ 0004 at f2 | |
 | 1 | 1 | DIRECT | [0,1] (norm) + 0x200 | ✗ 0004 at f2 | projection bit irrelevant |
 | 1 | 1 | DIRECT | all=(0,0) + 0x200 | ✗ 0004 at f2 | zero gradient does not help |
-| 1 | 1 | none, src=POS | pos-only | **PENDING** | current build |
+| 1 | 1 | none, src=POS | pos-only | **✓ 000c** | XF output itself is safe |
 
 **Confirmed root of stall**: XF 0x103F ≥ 1 (texgen output enabled to rasterizer).
 With XF=0, all modes clean. With XF=1, stall always appears at frame 2 regardless of texcoord values.
@@ -295,6 +295,40 @@ This diagnostic is now deployed as image hash:
 ```text
 d1be38b8227c4a48e19ad6bb0454cbae1a25f7caf7ecc2d10590e04b8f4d8920
 ```
+
+Boot result:
+
+```text
+f0 post:   SR=000c RDoff=0160 WToff=0160
+f1 post:   SR=000c RDoff=0160 WToff=0160
+f2 post:   SR=000c RDoff=0160 WToff=0160
+f3 post:   SR=000c RDoff=0160 WToff=0160
+f360 post: SR=000c RDoff=0160 WToff=0160
+```
+
+Interpretation: XF emitting generated texcoord output is safe when the source is
+position and the FIFO is position-only.  The frame-2 stall requires either
+`sourcerow=GX_TG_TEX0` specifically or the presence of a TEX0 vertex attribute
+while texgen output is enabled.
+
+Next split test: keep `sourcerow=GX_TG_POS` but re-add VCD/VAT TEX0=DIRECT and
+all-zero TEX0 payload.  If that drains, TEX0 payload is harmless and the bug is
+specific to XF sourcing from TEX0.  If it stalls, the bug requires a TEX0 vertex
+attribute to be present while XF texgen output is enabled.
+
+That split test is now deployed as image hash:
+
+```text
+56af7eeedab61fd8e34df69de75adc2ee6a3338d64c399a71e33985f4bdd1604
+```
+
+Current diagnostic state:
+
+- `XF 0x103F = 1`
+- `XF 0x1040 = 0x000` (`sourcerow=GX_TG_POS`, projection=0)
+- `VCD TEX0 = DIRECT`
+- quad vertices include direct TEX0 payload, currently all zero
+- TEV texture fetch disabled, EFB->XFB copy still enabled
 
 ### Step 2: Expand to full texcoord path
 
