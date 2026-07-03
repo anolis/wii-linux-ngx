@@ -1476,19 +1476,12 @@ static irqreturn_t vi_irq_handler(int irq, void *dev)
 				/* do nothing */
 			break;
 			case V4L2_PIX_FMT_RGB565:
-				/*
-				 * DIAGNOSTIC: always run SW transcode to keep
-				 * the display alive. If CP writes in the blit
-				 * cause a real machine check the display will
-				 * freeze here; if only the GP fails to execute
-				 * the display keeps scrolling. Remove once GP
-				 * execution is confirmed working.
-				 */
-				vi_transcode_RGB565(ctl);
 				if (gx_accel_ready)
 					gcn_gx_blit_fb_rgb565(vfb_mem, (u32)gx_fb_start,
 							      info->var.xres,
 							      info->var.yres);
+				else
+					vi_transcode_RGB565(ctl);
 				break;
 			case PIX_FMT_RGB888:
 				if (gx_accel_ready)
