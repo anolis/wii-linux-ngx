@@ -574,9 +574,13 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0xC108FFF0);
 	gx_load_bp_reg(0x25000380);
 
-	/* XF=1: texgen output enabled; 0x200 = projection=0 (ST, no divide), src=TEX0 */
+	/*
+	 * DIAGNOSTIC: XF texgen output enabled, but source texcoord 0 from
+	 * position rather than TEX0.  This removes TEX0 vertex payload entirely
+	 * while still asking XF/rasterizer/SU to carry a generated texcoord.
+	 */
 	gx_load_xf_reg(0x103f, 1);
-	gx_load_xf_reg(0x1040, 0x200);
+	gx_load_xf_reg(0x1040, 0x000);
 	gx_load_xf_reg(0x1050, 0x3F);
 	gx_load_identity_pos_mtx0();
 
@@ -608,14 +612,10 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0x30000000 | (u32)(width  - 1));
 	gx_load_bp_reg(0x31000000 | (u32)(height - 1));
 
-	/*
-	 * DIAGNOSTIC: XF=1 + projection=0 (0x200) + VCD TEX0=DIRECT.
-	 * Tests whether clearing the projection/perspective bit in XF 0x1040
-	 * fixes the SR=0x0004 stall seen with 0x201 (projection=1) + 2×4 matrix.
-	 */
+	/* VCD/VAT: direct XY position only; no TEX0 attribute in the FIFO. */
 	gx_load_cp_reg(0x50, 0x200);
-	gx_load_cp_reg(0x60, 0x001);
-	gx_load_cp_reg(0x70, 0x41200008);
+	gx_load_cp_reg(0x60, 0x000);
+	gx_load_cp_reg(0x70, 0x40000008);
 	gx_load_cp_reg(0x80, 0x80000000);
 	gx_load_cp_reg(0x90, 0x00000000);
 }
@@ -948,13 +948,14 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_current_frame = phase;
 
 	/*
-	 * DIAGNOSTIC: texcoord parse with normalized [0,1] UVs (was pixel coords).
-	 * Root cause of SR=0x0004 stall confirmed: GENMODE numtexcoordgens=1 with
-	 * unnormalized texcoords (0..576/432) overflows the rasterizer interpolator.
-	 * Normalized texcoords (0..1 at quad corners) should drain cleanly.
+	 * DIAGNOSTIC: XF generates texcoord 0 from position (XF 0x1040=0), while
+	 * the FIFO carries position-only vertices.  If this still leaves SR=0004
+	 * at frame 2, any XF texcoord output is enough to wedge the downstream
+	 * raster/SU path.  If it drains, the previous failure needs TEX0 vertex
+	 * payload or TEX0 source selection specifically.
 	 */
 	gx_setup_texcoord_parse_state(width, height);
-	gx_draw_fullscreen_quad(width, height);
+	gx_draw_pos_quad(width, height);
 	if (phase == 360)
 		gx_log_next_submit = true;
 	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);

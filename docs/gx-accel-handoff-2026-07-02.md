@@ -26,16 +26,22 @@ aef34ffc988f gcn-gx: strip texcoord from GENMODE+VCD, use pos-only quad to isola
 d2aabae562d7 gcn-gx: set XF 0x103F=0 (disable texgen output) to isolate stall source
 ```
 
-**Latest tested image**: `f08056d` code, rebuilt/copied as SHA-256
+**Previous tested image**: `f08056d` code, rebuilt/copied as SHA-256
 `6e760faaa1465f0eb4a4aa5391592b566fb9af4f720f760d0b3238f8ed770d84`.
 XF=1 + 0x200 + all quad texcoords=(0,0).  Result: still stalls with SR=0004
 starting at frame 2.
 
+**Current deployed image**: SHA-256
+`d1be38b8227c4a48e19ad6bb0454cbae1a25f7caf7ecc2d10590e04b8f4d8920`.
+This is the XF-from-position diagnostic: XF 0x103F=1, XF 0x1040=0x000
+(`sourcerow=GX_TG_POS`, projection=0), VCD TEX0 disabled, position-only quad.
+Awaiting boot result.
+
 ## Current gcn_gx_blit_fb_rgb565 pipeline (diagnostic)
 
 ```c
-gx_setup_texcoord_parse_state(width, height);    // XF=1 enabled, 0x200, texenable=0
-gx_draw_fullscreen_quad(width, height);           // DIAGNOSTIC: all texcoords=(0,0)
+gx_setup_texcoord_parse_state(width, height);    // XF=1, src=POS, texenable=0
+gx_draw_pos_quad(width, height);                  // DIAGNOSTIC: no TEX0 vertex payload
 gcn_gx_copy_efb_to_xfb(xfb_phys, width, height); // BP 0x65 draw-done fence included
 gx_submit_cmds();                                  // flush dcache, enable GP, wait drain
 ```
@@ -56,6 +62,7 @@ No tiling, no texture bind. EFB content = CC_ZERO (zero luma). Screen goes black
 | 1 | 1 | DIRECT | [0,1] (norm) + 0x201 | ✗ 0004 at f2 | |
 | 1 | 1 | DIRECT | [0,1] (norm) + 0x200 | ✗ 0004 at f2 | projection bit irrelevant |
 | 1 | 1 | DIRECT | all=(0,0) + 0x200 | ✗ 0004 at f2 | zero gradient does not help |
+| 1 | 1 | none, src=POS | pos-only | **PENDING** | current build |
 
 **Confirmed root of stall**: XF 0x103F ≥ 1 (texgen output enabled to rasterizer).
 With XF=0, all modes clean. With XF=1, stall always appears at frame 2 regardless of texcoord values.
@@ -282,6 +289,12 @@ XF to generate texcoord 0 from position instead:
 
 This tests whether TEX0 vertex data is needed to trigger the stall, or whether
 XF producing any texcoord output to rasterizer/SU is sufficient.
+
+This diagnostic is now deployed as image hash:
+
+```text
+d1be38b8227c4a48e19ad6bb0454cbae1a25f7caf7ecc2d10590e04b8f4d8920
+```
 
 ### Step 2: Expand to full texcoord path
 
