@@ -546,11 +546,7 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0x41000018);	/* colour/alpha update enabled */
 	gx_load_bp_reg(0xF33F0000);	/* alpha test always passes */
 
-	/*
-	 * DIAGNOSTIC: GENMODE numtexcoordgens=1 with XF=0 and pos-only vertices.
-	 * Tests whether GENMODE=1 alone (no VCD TEX0, no XF texgen output) is
-	 * sufficient to stall the rasterizer waiting for texcoords that never arrive.
-	 */
+	/* genMode: 1 texgen, 0 colour channels, 1 TEV stage */
 	gx_load_bp_reg(0x00000001);
 
 	xo = 0x156;
@@ -604,10 +600,14 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0x30000000 | (u32)(width  - 1));
 	gx_load_bp_reg(0x31000000 | (u32)(height - 1));
 
-	/* VCD/VAT: pos-only — no TEX0 in vertex stream, no XF texgen output. */
+	/*
+	 * DIAGNOSTIC: TEX0 in VCD (CP reads texcoord bytes) but XF=0 (no texgen
+	 * output). Tests whether the stall requires XF texgen output reaching the
+	 * rasterizer, or just TEX0 data entering the CP/XF pipeline.
+	 */
 	gx_load_cp_reg(0x50, 0x200);
-	gx_load_cp_reg(0x60, 0x000);
-	gx_load_cp_reg(0x70, 0x00000008);
+	gx_load_cp_reg(0x60, 0x001);
+	gx_load_cp_reg(0x70, 0x41200008);
 	gx_load_cp_reg(0x80, 0x80000000);
 	gx_load_cp_reg(0x90, 0x00000000);
 }
@@ -941,7 +941,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	 * Normalized texcoords (0..1 at quad corners) should drain cleanly.
 	 */
 	gx_setup_texcoord_parse_state(width, height);
-	gx_draw_pos_quad(width, height);
+	gx_draw_fullscreen_quad(width, height);
 	if (phase == 360)
 		gx_log_next_submit = true;
 	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
