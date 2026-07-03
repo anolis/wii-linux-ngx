@@ -26,7 +26,10 @@ aef34ffc988f gcn-gx: strip texcoord from GENMODE+VCD, use pos-only quad to isola
 d2aabae562d7 gcn-gx: set XF 0x103F=0 (disable texgen output) to isolate stall source
 ```
 
-**Current deployed image**: `f08056d` — XF=1 + 0x200 + all quad texcoords=(0,0). **Awaiting boot result.**
+**Latest tested image**: `f08056d` code, rebuilt/copied as SHA-256
+`6e760faaa1465f0eb4a4aa5391592b566fb9af4f720f760d0b3238f8ed770d84`.
+XF=1 + 0x200 + all quad texcoords=(0,0).  Result: still stalls with SR=0004
+starting at frame 2.
 
 ## Current gcn_gx_blit_fb_rgb565 pipeline (diagnostic)
 
@@ -52,7 +55,7 @@ No tiling, no texture bind. EFB content = CC_ZERO (zero luma). Screen goes black
 | 1 | 1 | DIRECT | [0,576] (pixel) | ✗ 0004 at f2 | original stall |
 | 1 | 1 | DIRECT | [0,1] (norm) + 0x201 | ✗ 0004 at f2 | |
 | 1 | 1 | DIRECT | [0,1] (norm) + 0x200 | ✗ 0004 at f2 | projection bit irrelevant |
-| 1 | 1 | DIRECT | all=(0,0) + 0x200 | **PENDING** | current build |
+| 1 | 1 | DIRECT | all=(0,0) + 0x200 | ✗ 0004 at f2 | zero gradient does not help |
 
 **Confirmed root of stall**: XF 0x103F ≥ 1 (texgen output enabled to rasterizer).
 With XF=0, all modes clean. With XF=1, stall always appears at frame 2 regardless of texcoord values.
@@ -87,10 +90,12 @@ With XF=1, the rasterizer receives texcoords from XF and must compute LOD deriva
 (a) Has a numerical issue that manifests after 2 frames of accumulation, OR  
 (b) Stalls on ANY non-zero texcoord gradient via some hardware bug.
 
-Current test (f08056d): all 4 vertex texcoords = (0,0), giving dS/dx = dS/dy = 0 everywhere. LOD = log₂(0) = −∞ → clamped to LOD=0. No interpolation step-error possible.
+The f08056d test set all 4 vertex texcoords to (0,0), giving dS/dx = dS/dy = 0
+everywhere.  That still stalled with SR=0004 at frame 2.
 
-- **If this boots SR=000c**: the stall is in LOD derivative computation with non-zero gradients. Next step: restore normalized texcoords but try suSsize=0 (1×1 scale).
-- **If still SR=0004 at f2**: the stall is upstream in XF output path or rasterizer setup, independent of texcoord values.
+Conclusion: the stall is upstream of non-zero LOD derivative computation.  Merely
+enabling XF texgen output into the rasterizer is enough to trigger the persistent
+downstream non-idle state.
 
 ### Secondary hypothesis (if degenerate texcoords don't fix it)
 
@@ -134,9 +139,35 @@ With XF=1, f0 and f1 DO render pixels (xfb=00800080 = CC_ZERO output confirmed).
 
 With previous 0x201 value the outcome was identical. The projection/bit0 change had no effect.
 
-#### Test: XF=1 + 0x200 + all texcoords=(0,0) → PENDING
+#### Test: XF=1 + 0x200 + all texcoords=(0,0) → SR=0004 at f2
 
-Commit `f08056d559ff`. Deployed. Result not yet read.
+Commit `f08056d559ff`, rebuilt/copied image hash:
+
+```text
+6e760faaa1465f0eb4a4aa5391592b566fb9af4f720f760d0b3238f8ed770d84
+```
+
+dmesg:
+
+```text
+f0 pre:  SR=0008 RD=0000 WT=0180 pos=384
+f0 post: SR=000c RDoff=0180 WToff=0180
+f0 tex0=00000000 xfb0=00800080 xfb1=00800080
+f1 post: SR=000c RDoff=0180 WToff=0180
+f1 tex0=00000000 xfb0=00800080 xfb1=00800080
+f2 post: SR=0004 RDoff=0180 WToff=0180
+pipeline did not go idle after submit (SR=0x0004)
+f2 tex0=00000000 xfb0=00800080 xfb1=00800080
+f3 pre:  SR=0000 RD=0000 WT=0180 pos=384
+f3 post: SR=0004 RDoff=0180 WToff=0180
+first_slow f13 SR=0000 RDoff=0120 WToff=0180 PIoff=0180 pos=384
+first_stall f13 SR=0000 RDoff=0120 WToff=0180 PIoff=0180 pos=384
+```
+
+Important distinction: frame 2 fully drained the FIFO (`RDoff == WToff == 0x0180`)
+but did not reach command-idle (`SR=0004`, bit 3 clear).  The hard CP read-pointer
+stall at frame 13 is a cascaded failure after repeatedly submitting into a
+downstream pipeline that never became idle.
 
 ---
 
@@ -237,13 +268,20 @@ Set to 0x3F (disable all post-transforms / GX_DTTIDENTITY).
 
 ## Suggested next steps
 
-### Step 1: Read f08056d boot result and branch accordingly
+### Step 1: Test whether XF generating any texcoord output is sufficient
 
-Boot `f08056d` (XF=1 + 0x200 + all texcoords=(0,0)).
+The f08056d zero-gradient test landed in Case B: zero-gradient TEX0 still gives
+SR=0004 at frame 2.  The next diagnostic should remove VCD TEX0 entirely and ask
+XF to generate texcoord 0 from position instead:
 
-**Case A — SR=000c all frames**: zero-gradient texcoords eliminate the stall. LOD derivative computation with non-zero gradients is the root cause. Next: restore [0,1] texcoords but set suSsize=0 (suTsize=0). If that also fixes it, the suSsize scale causes a bad LOD. If not, something about the gradient itself (e.g. fixed-point precision accumulation) is the issue.
+- `XF 0x103F = 1`
+- `XF 0x1040 = 0x000` (`sourcerow=GX_TG_POS`, projection=0)
+- `VCD TEX0 = none`
+- `VAT = position-only`
+- `gx_draw_pos_quad()`
 
-**Case B — SR=0004 at f2 still**: zero-gradient doesn't help. The stall is not in LOD computation. It's in XF output or rasterizer setup for texcoords. Next: try XF=1 + src=POS (sourcerow=0 instead of TEX0=4) + VCD TEX0=NONE + pos-only vertices. Tests if TEX0 vertex data is needed to trigger the stall, or if XF generating any texcoord output is sufficient.
+This tests whether TEX0 vertex data is needed to trigger the stall, or whether
+XF producing any texcoord output to rasterizer/SU is sufficient.
 
 ### Step 2: Expand to full texcoord path
 
@@ -435,7 +473,8 @@ Exact reason for f0 skip with XF=0 is unknown but irrelevant for the production 
 ### 17. XF texgen output (XF 0x103F=1) causes frame-2 stall — root cause still open
 
 Enabling XF texgen output (XF 0x103F=1) causes SR=0x0004 at exactly frame 2, regardless
-of texcoord values (pixel-space, normalized [0,1], or uniform 0x200 vs 0x201).
+of texcoord values (pixel-space, normalized [0,1], uniform all-zero) or XF 0x1040
+projection bit (0x200 vs 0x201).
 
 Pattern:
 - f0: SR=000c, pixels rendered to EFB (xfb=00800080)
@@ -444,8 +483,8 @@ Pattern:
 - f3+: cascaded failure (SR=0000 at pre-log)
 
 The "exactly frame 2" pattern suggests a hardware state that accumulates over 2 renders.
-Current investigation: degenerate texcoords (all=(0,0)) to test if texcoord gradient
-computation is the trigger.
+Degenerate texcoords (all=(0,0)) did not fix it, so non-zero gradient/LOD derivative
+math is not sufficient to explain the stall.
 
 ---
 
