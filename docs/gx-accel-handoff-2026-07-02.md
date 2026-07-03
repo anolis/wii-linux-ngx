@@ -17,40 +17,58 @@ The long-term motivation is a usable lightweight Wii desktop environment, where 
 
 Branch: `feature/gcn-gx-accel`
 
-Latest commits (most recent first):
+Recent commits before the latest diagnostic patch (most recent first):
 
 ```text
-37328d48c240 Move tex_buf to MEM1; restore full pipeline; diagnose COPY_CTRL_CLEAR
-78d43025d4e0 Update GX handoff: vertical bars diagnosis, stride fix, next steps
-2ed459a6c78f Diagnose vertical-bars output; fix stride, drain wait, diagnostic blit
-69027724c2c6 Document Wii GX acceleration handoff
-a06c3538569e Stop GX CP after submitted FIFO drains
+17578e99c698 gcn-gx: load identity position matrix for diagnostics
+4b4a2259a872 gcn-gx: add solid raster-color diagnostic
+d39ddb35f1f7 gcn-gx: fix stage-0 TEV order binding
+4ff55b37bc23 gcn-gx: add color-cycle diagnostic, onboard logging, update handoff
+02b97bd20a53 gcn-gx: fix three PE pixel-discard traps and sync mechanism
 ...
 ```
 
-### Session 2026-07-03 changes (not yet committed)
+### Session 2026-07-03 latest diagnostic
 
-All changes listed here are live in the deployed build but not yet in a git commit.
+The previous deployed build reached userspace and wrote `/dmesg.txt`, proving the
+system was not broadly wedged before the log script ran.  The critical failure was
+specific to the frame-360 direct raster-colour diagnostic:
 
-- **Fixed PE register offset**: `PE_REG_CTRL_STAT = 0` (byte offset 0x00), not 1.
-  Previous code wrote to pe_regs[1] = PE_TOKEN_VALUE, doing nothing useful.
-- **Fixed PE clear write**: `out_be16(pe_regs + PE_REG_CTRL_STAT, 0x0003)` — clears
-  status bits 2-3 (PEToken/PEFinish) while preserving enable bits 0-1.
-- **Reduced sync delay**: 8ms → 2ms. Boot log proves copy completes in <1ms.
-- **Added BP 0x66 ×2 (BPMEM_TX_INVALIDATE)** in `gx_setup_texture_rgb565`:
-  Forces the TMU to re-fetch from main memory each frame instead of serving the
-  first frame's cached data.  Sent twice for reliability (same as libogc).
-- **Added multi-frame diagnostic logging** (4 frames, controlled by `frame_log` counter):
-  Logs CP SR, RD, WT before/after GP enable, plus XFB readback for frames 0-3 and 360.
-- **Added solid color cycling test** (frames 360-900) in `gcn_gx_blit_fb_rgb565`:
-  Fills `gx_tex_buf` with solid red/green/blue to verify color output independently
-  of `vfb_mem` content.  Active while `frame_count` is in the 360-900 range.
-- **Fixed BP 0x41 (BLENDMODE) missing**: Added `gx_load_bp_reg(0x41000018)` to
-  `gx_setup_2d_state` — see §11.
-- **Fixed BP 0xF3 (ALPHA_COMPARE) missing**: Added `gx_load_bp_reg(0xF33F0000)` to
-  `gx_setup_2d_state` — see §13 (★ most recent fix, not yet boot-tested).
+```text
+gcn-gx: f360 pre:  SR=0000 RD=0000 WT=0140 pos=320
+gcn-gx: f360 post: SR=0000 RDoff=0000 WToff=0140
+gcn-gx: f360 tex0=f800f800 xfb0=00800080 xfb1=00800080
+```
 
-**Current deployed build: `b1c85bf6`**
+Frames 0-3 consumed their FIFO normally (`RDoff=0180`), but frame 360 did not
+advance RD at all.  To isolate whether that was the direct-colour command stream
+or a time/state issue, the latest patch removes the active direct-colour path and
+changes the frame-360 colour test to reuse the same textured draw path as frames
+0-3, with a solid RGB565-filled texture.
+
+**Current deployed image hash:** `3138062b1fc69cfcc177464993e10993edbdb8b9c812a94c6abc9990b9f945b5`
+
+Boot result for that image:
+
+```text
+gcn-gx: f0 post:   SR=000c RDoff=0180 WToff=0180
+gcn-gx: f1 post:   SR=000c RDoff=0180 WToff=0180
+gcn-gx: f2 post:   SR=0004 RDoff=0180 WToff=0180
+gcn-gx: f3 post:   SR=0004 RDoff=0180 WToff=0180
+gcn-gx: f360 pre:  SR=0000 RD=0000 WT=0180 pos=384
+gcn-gx: f360 post: SR=0000 RDoff=0000 WToff=0180
+gcn-gx: f360 tex0=f800f800 xfb0=00800080 xfb1=00800080
+--- init-diag: after blink ---
+28.69 24.23
+--- init-diag: before shell ---
+28.72 24.23
+```
+
+Interpretation: the Wii did not broadly crash or reboot before the diagnostic
+completed.  Userspace survived long enough to log and blink.  The direct-colour
+diagnostic was not the root cause: frame 360 still fails when using the textured
+path and the same 384-byte command size as frames 0-3.  The next question is:
+which frame first stops advancing `RD`?
 
 ## Onboard diagnostic logging
 
@@ -58,10 +76,12 @@ All changes listed here are live in the deployed build but not yet in a git comm
 
 1. Mounts `/proc` and `/sys`.
 2. Remounts rootfs read-write.
-3. Sleeps 20 seconds (captures the full color-cycling test window).
-4. Writes `dmesg` output to `/dmesg.txt` on the rootfs partition.
-5. Appends `/proc/bus/input/devices` and `/dev/input/` listing for USB input debugging.
-6. Calls `sync`, then `exec /bin/sh -l` on `/dev/console` (interactive shell available after ~20s).
+3. Writes `/dmesg.txt` start/uptime markers.
+4. Sleeps 20 seconds (captures the frame-360 diagnostic window).
+5. Appends `dmesg`, `/proc/bus/input/devices`, and `/dev/input/` output.
+6. Writes uptime markers before and after the slot-LED blink, then before shell exec.
+7. Blinks the Wii slot LED 10 times when logging is complete.
+8. Calls `exec /bin/sh -l` on `/dev/console` (interactive shell available after ~25s).
 
 Script location on the rootfs (WII-LINUX-NGX1 partition):
 
@@ -72,17 +92,23 @@ Script location on the rootfs (WII-LINUX-NGX1 partition):
 Script contents:
 
 ```sh
-#!/bin/sh
-mount -t proc none /proc
-mount -t sysfs none /sys
-mount -o remount,rw /
+# Current script also contains blink_done() for the Wii slot LED.
+echo "--- init-diag: start ---" > /dmesg.txt
+cat /proc/uptime >> /dmesg.txt 2>&1
+sync
 sleep 20
-dmesg > /dmesg.txt
+echo "--- init-diag: after sleep ---" >> /dmesg.txt
+cat /proc/uptime >> /dmesg.txt 2>&1
+dmesg >> /dmesg.txt
 echo "--- /proc/bus/input/devices ---" >> /dmesg.txt
 cat /proc/bus/input/devices >> /dmesg.txt 2>&1
 echo "--- /dev/input ---" >> /dmesg.txt
 ls -la /dev/input/ >> /dmesg.txt 2>&1
 sync
+echo "--- init-diag: before blink ---" >> /dmesg.txt
+blink_done
+echo "--- init-diag: after blink ---" >> /dmesg.txt
+echo "--- init-diag: before shell ---" >> /dmesg.txt
 exec /bin/sh -l </dev/console >/dev/console 2>/dev/console
 ```
 
@@ -459,7 +485,7 @@ the primitive never reached raster/PE.
 | `0x0004` | GP enabled + FIFO not empty (still processing) |
 | `0x0000` | Transitional / uncertain |
 
-## Current pipeline state (build `b1c85bf6`)
+## Current pipeline state
 
 `gx_setup_2d_state()` now sets these registers explicitly (in order):
 
@@ -475,26 +501,46 @@ gx_load_bp_reg(0xC108FFC0);  /* TEV ALPHA:      output = texture alpha        */
 gx_load_bp_reg(0x250003C0);  /* TEV ORDER:      texmap=0, texcoord=0, enable  */
 ```
 
-`gcnfb.c` still runs `vi_transcode_RGB565` unconditionally as a safety net.  The GX blit runs after it each frame and overwrites the XFB if GX output is correct.
+`gcnfb.c` currently takes the GX blit path directly when `gx_accel_ready` is true.
+The software RGB565 transcode path is not running as a safety net in this build.
+
+`gcn_gx_blit_fb_rgb565()` behaviour in the current deployed image:
+
+- Frames 0-359: tile and draw real `vfb_mem`.
+- Frames 360-899: fill `gx_tex_buf` with solid RGB565 red/green/blue and draw it
+  through the normal textured pipeline.
+- Frame 360 still logs CP pre/post RD/WT and `tex0`/`xfb0` readback.
 
 ## Suggested next steps
 
-1. **Boot `b1c85bf6` and check dmesg.txt** (auto-written at t=20s by init-diag.sh):
-   - `f360 xfb0` should be non-black (e.g. `~0x515A51F0` for red).
-   - User should observe solid red → green → blue on the display between t≈15s and t≈50s.
+1. **Add first-stall logging in `gx_submit_cmds()`**:
+   - Check RD/WT after every submit, but only print when the first mismatch is
+     observed.
+   - Keep the existing frame 0-3 and frame 360 detailed logs.
+   - This determines whether the GP stops consuming immediately after f3, much
+     later, or exactly at the frame-360 colour fill.
 
-2. **If color cycling confirms end-to-end pipeline works**:
+2. **If f360 is the first stall**:
+   - Keep the textured solid path, but test whether filling/flushing the entire
+     `gx_tex_buf` inside the VI IRQ is racing or taking too long.
+   - Try preparing the solid texture once at init or before frame 360 instead of
+     doing a full 640x480/576 memset-style fill in the DI1 IRQ.
+
+3. **If an earlier frame is the first stall**:
+   - Investigate repeated per-vsync CP stop/start, FIFO pointer programming, and
+     whether `CP_REG_CTRL=0` leaves the GP in a non-restartable state after some
+     number of submits.
+
+4. **If color cycling eventually confirms end-to-end pipeline works**:
    - Remove the color cycling test block in `gcn_gx_blit_fb_rgb565`.
    - Remove the 4-frame CP SR logging in `gx_submit_cmds`.
    - Remove the XFB readback `pr_info` calls.
    - Verify actual terminal content (fbcon text) renders correctly via GX.
 
-3. **Remove the SW transcode safety net** once GX output is visually confirmed correct.
+5. **Remove the SW transcode safety net** once GX output is visually confirmed correct.
    In `gcnfb.c` RGB565 path, remove the `vi_transcode_RGB565` call.
 
-4. **Commit the session's changes** — currently all sitting as uncommitted edits on `feature/gcn-gx-accel`.
-
-5. **Register a PE FINISH ISR** (future improvement): replace `udelay(2000)` with an interrupt-driven wait on the PE FINISH signal, freeing ~2ms of CPU time per frame.
+6. **Register a PE FINISH ISR** (future improvement): replace `udelay(2000)` with an interrupt-driven wait on the PE FINISH signal, freeing ~2ms of CPU time per frame.
 
 ## Known pitfalls
 
