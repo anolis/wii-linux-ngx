@@ -552,9 +552,15 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	xo = 0x156;
 	yo = 0x156;
 	gx_load_bp_reg(0x20000000 | ((xo & 0x7ff) << 12) | (yo & 0x7ff));
+	/*
+	 * DIAGNOSTIC: restrict scissor to 4×4 pixels (16 total) to test whether
+	 * the SR=0x0004 CmdIdle stall is proportional to pixel count.
+	 * If SR=000c with 4×4 but SR=0004 with 576×432, the bottleneck is PE
+	 * write throughput or EFB tile-cache eviction, not a TEV config issue.
+	 */
 	gx_load_bp_reg(0x21000000 |
-		       (((xo + width  - 1) & 0x7ff) << 12) |
-		       ((yo + height - 1) & 0xfff));
+		       (((xo + 4  - 1) & 0x7ff) << 12) |
+		       ((yo + 4 - 1) & 0xfff));
 
 	/* TEV stage 0: output zero colour/alpha, no texture input.
 	 * raschan=7 (GX_COLOR_NULL, bits[9:7]=0b111 → 0x380): with numcolchans=0
@@ -934,10 +940,10 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	if (phase == 360)
 		gx_log_next_submit = true;
 	/*
-	 * DIAGNOSTIC: re-enable EFB->XFB copy (adds BP 0x65 draw-done fence).
-	 * Hypothesis: without BP 0x65 queued after the draw, the PE never fires
-	 * PEFinish and CmdIdle (SR bit 3) stays 0 indefinitely.  EFB will be
-	 * black (no texture fetch here), but pipeline drain should be clean.
+	 * DIAGNOSTIC: scissor is 4×4 (see gx_setup_texcoord_parse_state).
+	 * BP 0x65 confirmed NOT sufficient to fix SR=0x0004 stall; now testing
+	 * whether stall is proportional to pixel count.  EFB copy reads full
+	 * width×height but only 16 pixels were rendered — rest is zero/black.
 	 */
 	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
 	gx_submit_cmds();
