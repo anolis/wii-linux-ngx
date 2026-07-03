@@ -477,14 +477,21 @@ static void gx_setup_2d_state(u16 width, u16 height)
 	gx_load_xf_reg(0x103f, 1);
 
 	/* ---- XF 0x1040: texCoordGen[0] ----
-	 * GX_TG_MTX2x4 (type=1), src=GX_TG_TEX0 (srcrow=4):
-	 *   (4 << 7) | 1 = 0x201
-	 * MTX2x4 produces (s,t) with no homogeneous q — avoids the
-	 * rasterizer stall caused by q=0 from uninitialized TEXMTX0.
-	 * (The prior value 0x280 = MTX3x4 + TEX1 source was wrong on
-	 * both counts.)
+	 * Hardware TexMtxInfo bit layout (Dolphin XFMemory.h):
+	 *   bit[0]    = projection (0=ST output/no divide, 1=STQ output/perspective divide)
+	 *   bits[3:1] = inputform+texgentype (0 = regular matrix multiply)
+	 *   bits[11:7] = sourcerow (4 = GX_TG_TEX0)
+	 *
+	 * CRITICAL: bit[0]=1 (projection=1) tells XF to produce 3 components (STQ)
+	 * for perspective divide.  With only a 2×4 matrix at TEXMTX0 (2 rows, no
+	 * Q row), the hardware reads a garbage/zero Q from the uninitialized 3rd
+	 * row and the rasterizer hangs on ST/Q divide-by-zero from frame 2 onward
+	 * (SR=0x0004, CmdIdle stall).
+	 *
+	 * 0x200 = (srcrow=4 << 7) | 0 → projection=0 (ST), type=regular, src=TEX0.
+	 * Matches the 2×4 identity matrix at XF 0x0078 (2-row, no Q component).
 	 */
-	gx_load_xf_reg(0x1040, 0x201);
+	gx_load_xf_reg(0x1040, 0x200);
 
 	/* ---- XF 0x1050: texCoordGen2[0] ----
 	 * normalize=0, postmtx=GX_DTTIDENTITY=63
@@ -567,8 +574,9 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0xC108FFF0);
 	gx_load_bp_reg(0x25000380);
 
-	gx_load_xf_reg(0x103f, 0);	/* XF=0: no texcoord output from XF */
-	gx_load_xf_reg(0x1040, 0x201);
+	/* XF=1: texgen output enabled; 0x200 = projection=0 (ST, no divide), src=TEX0 */
+	gx_load_xf_reg(0x103f, 1);
+	gx_load_xf_reg(0x1040, 0x200);
 	gx_load_xf_reg(0x1050, 0x3F);
 	gx_load_identity_pos_mtx0();
 
@@ -601,9 +609,9 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0x31000000 | (u32)(height - 1));
 
 	/*
-	 * DIAGNOSTIC: TEX0 in VCD (CP reads texcoord bytes) but XF=0 (no texgen
-	 * output). Tests whether the stall requires XF texgen output reaching the
-	 * rasterizer, or just TEX0 data entering the CP/XF pipeline.
+	 * DIAGNOSTIC: XF=1 + projection=0 (0x200) + VCD TEX0=DIRECT.
+	 * Tests whether clearing the projection/perspective bit in XF 0x1040
+	 * fixes the SR=0x0004 stall seen with 0x201 (projection=1) + 2×4 matrix.
 	 */
 	gx_load_cp_reg(0x50, 0x200);
 	gx_load_cp_reg(0x60, 0x001);
@@ -686,21 +694,26 @@ static void gx_draw_fullscreen_quad(u16 width, u16 height)
 	 * ~1.0 (e.g. raw pixel values 0..576); suSsize/suTsize scale [0,1] to
 	 * texel addresses at TMU sample time.
 	 */
+	/*
+	 * DIAGNOSTIC: all texcoords = (0,0). Zero gradient → LOD = -∞ (safe).
+	 * Tests whether non-zero texcoord derivatives are what stalls the
+	 * rasterizer's LOD unit at frame 2 with XF=1.
+	 */
 	/* top-left:     pos=(0, 0),   tex=(0, 0) */
 	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
 	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
 
-	/* top-right:    pos=(w, 0),   tex=(1, 0) */
+	/* top-right:    pos=(w, 0),   tex=(0, 0) */
 	wg_f32_bits(fw);       wg_f32_bits(F32_ZERO);
-	wg_f32_bits(F32_ONE);  wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
 
-	/* bottom-right: pos=(w, h),   tex=(1, 1) */
+	/* bottom-right: pos=(w, h),   tex=(0, 0) */
 	wg_f32_bits(fw);       wg_f32_bits(fh);
-	wg_f32_bits(F32_ONE);  wg_f32_bits(F32_ONE);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
 
-	/* bottom-left:  pos=(0, h),   tex=(0, 1) */
+	/* bottom-left:  pos=(0, h),   tex=(0, 0) */
 	wg_f32_bits(F32_ZERO); wg_f32_bits(fh);
-	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ONE);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
 }
 
 static void gx_draw_pos_quad(u16 width, u16 height)
