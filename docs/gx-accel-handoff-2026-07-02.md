@@ -376,6 +376,33 @@ gx_load_bp_reg(0xF33F0000);
 
 **The pattern**: ZMODE (BP 0x40), BLENDMODE (BP 0x41), and ALPHA_COMPARE (BP 0xF3) all have hardware reset values that discard pixels.  Each was found and fixed separately.  Always set all three explicitly in any GX 2D init sequence.
 
+### 14. BP 0x25, not 0x28, is TEV order for stage 0
+
+Booting the `b1c85bf6` diagnostic image showed that the GP consumes the full
+FIFO and the color-cycle texture buffer contains solid red, but the copied XFB
+is still black:
+
+```text
+[   15.096539] gcn-gx: f360 tex0=f800f800 xfb0=00800080 xfb1=00800080
+```
+
+This means the texture buffer is correct and EFB->XFB copy still runs, but the
+draw is not producing color in EFB.
+
+Review against libogc found a concrete register mismatch: stage-0 TEV order is
+stored in `tevRasOrder[0]`, whose BP register id is `0x25`.  The code was
+writing `0x280003C0`, which targets a later TEV order register and leaves stage
+0's texmap/texcoord binding at reset state.
+
+Fix:
+
+```c
+gx_load_bp_reg(0x250003C0);  /* stage 0: texmap=0, texcoord=0, texenable=1 */
+```
+
+The same pass also fixed the TEV alpha input constant from `0xC108FFD0` to
+`0xC108FFC0`: libogc defines `GX_CA_TEXA = 4`, not 5.
+
 **Expected result for build `b1c85bf6`**: At frame 360 (`t ≈ 15s`), `xfb0` should be a non-black YUYV value (approximately `0x515A51F0` for solid red under BT.601).  The display should visibly cycle red → green → blue over ~18 seconds from boot.
 
 ## CP status register (SR) field meanings
@@ -399,8 +426,8 @@ gx_load_bp_reg(0x00000001);  /* GENMODE:        1 texgen, 1 TEV stage        */
 gx_load_bp_reg(0x20...);     /* SCISSOR TL                                    */
 gx_load_bp_reg(0x21...);     /* SCISSOR BR                                    */
 gx_load_bp_reg(0xC008FFF8);  /* TEV COLOR:      output = texture color        */
-gx_load_bp_reg(0xC108FFD0);  /* TEV ALPHA:      output = texture alpha        */
-gx_load_bp_reg(0x280003C0);  /* TEV ORDER:      texmap=0, texcoord=0, enable  */
+gx_load_bp_reg(0xC108FFC0);  /* TEV ALPHA:      output = texture alpha        */
+gx_load_bp_reg(0x250003C0);  /* TEV ORDER:      texmap=0, texcoord=0, enable  */
 ```
 
 `gcnfb.c` still runs `vi_transcode_RGB565` unconditionally as a safety net.  The GX blit runs after it each frame and overwrites the XFB if GX output is correct.

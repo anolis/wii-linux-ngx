@@ -427,17 +427,17 @@ static void gx_setup_2d_state(u16 width, u16 height)
 	gx_load_bp_reg(0xC008FFF8);
 
 	/* ---- BP 0xC1: TEV stage 0 alpha input ----
-	 * a=[15:13], b=[12:10], c=[9:7], d=[6:4]  (CA_TEXA=5, CA_ZERO=7)
-	 * a=b=c=ZERO(7), d=TEXA(5) → output = texture alpha
+	 * a=[15:13], b=[12:10], c=[9:7], d=[6:4]  (CA_TEXA=4, CA_ZERO=7)
+	 * a=b=c=ZERO(7), d=TEXA(4) → output = texture alpha
 	 * clamp=[19]=1
 	 */
-	gx_load_bp_reg(0xC108FFD0);
+	gx_load_bp_reg(0xC108FFC0);
 
-	/* ---- BP 0x28: TEV order stage 0 (tevRasOrder[3]) ----
+	/* ---- BP 0x25: TEV order stages 0/1 (tevRasOrder[0]) ----
 	 * [2:0] texmap=0, [5:3] texcoord=0, [6] texenable=1,
 	 * [9:7] rascolor=GX_ALPHA_BUMP=7
 	 */
-	gx_load_bp_reg(0x280003C0);
+	gx_load_bp_reg(0x250003C0);
 
 	/* ---- XF 0x103f: numtexcoord generators = 1 ---- */
 	gx_load_xf_reg(0x103f, 1);
