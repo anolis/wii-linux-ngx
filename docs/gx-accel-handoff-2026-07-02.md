@@ -70,6 +70,122 @@ diagnostic was not the root cause: frame 360 still fails when using the textured
 path and the same 384-byte command size as frames 0-3.  The next question is:
 which frame first stops advancing `RD`?
 
+First-stall test result:
+
+```text
+gcn-gx: first_stall f13 SR=0000 RDoff=0120 WToff=0180 PIoff=0180 pos=384
+```
+
+Interpretation: frame 13 did not fully drain within the fixed 2 ms delay, but it
+did consume the first `0x120` bytes of the `0x180` byte FIFO.  The old submit
+path then disabled CP immediately, truncating the remaining `0x60` bytes.  That
+likely corrupts or wedges later GP state and explains why f360 later starts from
+`RDoff=0000`.
+
+Latest uncommitted test patch: `gx_submit_cmds()` now logs the first slow frame,
+waits up to an extra 8 ms for RD to catch WT, and only reports `first_stall` if
+RD still does not match WT after that grace period.  This avoids disabling CP
+while the GP is mid-command stream.
+
+Boot result for the extended-drain image:
+
+```text
+gcn-gx: first_slow f13 SR=0000 RDoff=0120 WToff=0180 PIoff=0180 pos=384
+gcn-gx: first_stall f13 SR=0000 RDoff=0120 WToff=0180 PIoff=0180 pos=384
+```
+
+The extra wait did not help.  Offset `0x120` is at the start of the fullscreen
+quad vertex payload: state setup and texture binding were consumed, then the GP
+blocked while feeding geometry into the backend.  Since early frames drained and
+XFB readback stayed black, the likely failure is that EFB copy/PE state is not
+completing, the backend fills, and later primitives stall.
+
+Latest active test patch: the blit now skips `gcn_gx_copy_efb_to_xfb()` entirely
+and submits only setup + texture + quad.  The display is expected not to update
+from GX in this image.  The result is in `/dmesg.txt`: if `first_stall` disappears
+or moves far later, the copy/PE path is the culprit.
+
+No-copy result:
+
+```text
+gcn-gx: first_slow f14 SR=0000 RDoff=0120 WToff=0160 PIoff=0160 pos=352
+gcn-gx: first_stall f14 SR=0000 RDoff=0120 WToff=0160 PIoff=0160 pos=352
+```
+
+Copy/PE is therefore not the trigger.  The stall point is still the quad stream.
+Latest active test patch adds `stall_bytes` dumps around `RDoff` on the first
+hard stall so the exact GP parser position can be decoded from `/dmesg.txt`.
+
+Stall-byte result:
+
+```text
+gcn-gx: stall_bytes @0110: 31 00 01 af 80 00 04 00 00 00 00 00 00 00 00 00
+gcn-gx: stall_bytes @0120: 00 00 00 00 00 00 00 44 10 00 00 00 00 00 00 44
+```
+
+Decode:
+
+- `0x0110`: BP `0x31` (`suTsize`) value `0x0001af`
+- `0x0114`: primitive command `0x80` (`GX_QUADS`) count `0x0004`
+- `0x0117`: first vertex starts
+- `0x0120`: inside the first vertex's all-zero texture-coordinate payload
+
+The command stream is syntactically sane.  The GP is stalling while feeding the
+primitive/vertex stream to the raster/PE backend.  Latest active patch increases
+the post-submit diagnostic delay from 2 ms to 10 ms before checking RD/WT and
+disabling CP.  If this eliminates `first_stall`, the bug is missing/incorrect
+PE/raster completion sync between frames.
+
+10 ms result:
+
+```text
+gcn-gx: first_slow f14 SR=0000 RDoff=0120 WToff=0160 PIoff=0160 pos=352
+gcn-gx: first_stall f14 SR=0000 RDoff=0120 WToff=0160 PIoff=0160 pos=352
+```
+
+The longer delay did not help.  The next patch removed texture setup and TEX0
+vertex data entirely: `gcn_gx_blit_fb_rgb565()` submitted a position-only quad
+with no EFB->XFB copy.
+
+Position-only result:
+
+```text
+gcn-gx: f0 post: SR=000c RDoff=0100 WToff=0100
+gcn-gx: f1 post: SR=000c RDoff=0100 WToff=0100
+gcn-gx: f2 post: SR=000c RDoff=0100 WToff=0100
+gcn-gx: f3 post: SR=000c RDoff=0100 WToff=0100
+gcn-gx: f360 post: SR=000c RDoff=0100 WToff=0100
+```
+
+Image hash for that successful position-only build:
+
+```text
+12a2a11f1c673898b1d3841b422ec7a2c65396cd4db6a7bbd57e3d7a0923d19b
+```
+
+Interpretation: the GP can parse and drain the primitive stream when the vertex
+format is direct XY position only.  The recurring `RDoff=0120` stall is therefore
+not a general primitive/raster failure and not caused by EFB->XFB copy.  It is
+isolated to TEX0 texture-coordinate state or the texture fetch path.
+
+Latest active test image: direct TEX0 parsing without texture fetch.
+
+```text
+2e3d0c85513fe50a685d7cfb5f7917f5b108dca6b36709aabb1e7c1d7c16ebbe
+```
+
+This image submits a fullscreen quad with direct XY position plus direct TEX0
+vertex data and XF texcoord generation enabled, but leaves TEV texture fetch
+disabled (`TEV_ORDER` texture enable clear) and still skips EFB->XFB copy.  The
+test separates CP/VAT/VCD parsing of TEX0 payload from TMU texture binding/fetch.
+
+Expected interpretation for `/dmesg.txt` from this image:
+
+- If it stalls again at or near `RDoff=0120`, the failure is in the TEX0 vertex
+  format / VAT / VCD / texcoord-generation setup.
+- If it drains like the position-only image, the TEX0 parser is fine and the
+  next suspect is texture object binding or TMU fetch state.
+
 ## Onboard diagnostic logging
 
 **The kernel is booting with `init=/init-diag.sh` in the bootargs.**  This script:
@@ -506,21 +622,23 @@ The software RGB565 transcode path is not running as a safety net in this build.
 
 `gcn_gx_blit_fb_rgb565()` behaviour in the current deployed image:
 
-- Frames 0-359: tile and draw real `vfb_mem`.
-- Frames 360-899: fill `gx_tex_buf` with solid RGB565 red/green/blue and draw it
-  through the normal textured pipeline.
-- Frame 360 still logs CP pre/post RD/WT and `tex0`/`xfb0` readback.
+- Does not tile `vfb_mem`.
+- Does not bind or fetch from `gx_tex_buf`.
+- Does not issue EFB->XFB copy.
+- Sets GX state for direct XY position plus direct TEX0 vertex payload and draws
+  the normal fullscreen quad.
+- Logs frames 0-3 plus frame 360, and logs first slow/stalled submit with bytes
+  around the CP read pointer.
 
 ## Suggested next steps
 
-1. **Add first-stall logging in `gx_submit_cmds()`**:
-   - Check RD/WT after every submit, but only print when the first mismatch is
-     observed.
-   - Keep the existing frame 0-3 and frame 360 detailed logs.
-   - This determines whether the GP stops consuming immediately after f3, much
-     later, or exactly at the frame-360 colour fill.
+1. **Boot the current TEX0-parse/no-fetch image**:
+   - Image hash: `2e3d0c85513fe50a685d7cfb5f7917f5b108dca6b36709aabb1e7c1d7c16ebbe`.
+   - Pull `/dmesg.txt` from the rootfs after the slot LED blink.
+   - If it stalls around `RDoff=0120`, inspect VCD/VAT/texcoord-generation setup.
+   - If it drains, re-enable texture object setup and TEV texture fetch next.
 
-2. **If f360 is the first stall**:
+2. **If f360 is still the first hard stall**:
    - Keep the textured solid path, but test whether filling/flushing the entire
      `gx_tex_buf` inside the VI IRQ is racing or taking too long.
    - Try preparing the solid texture once at init or before frame 360 instead of

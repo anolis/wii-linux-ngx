@@ -62,6 +62,7 @@ static void *gx_fifo_buf;
 static void *gx_tex_raw;
 static void *gx_tex_buf;
 static bool gx_log_next_submit;
+static u32 gx_current_frame;
 
 /* Set to true after successful gcn_gx_init(); guards vsync path */
 bool gx_accel_ready;
@@ -516,6 +517,59 @@ static void gx_setup_2d_state(u16 width, u16 height)
 	gx_load_cp_reg(0x90, 0x00000000);
 }
 
+static void gx_setup_texcoord_parse_state(u16 width, u16 height)
+{
+	u32 xo, yo;
+
+	gx_load_bp_reg(0x40000000);	/* Z disabled */
+	gx_load_bp_reg(0x41000018);	/* colour/alpha update enabled */
+	gx_load_bp_reg(0xF33F0000);	/* alpha test always passes */
+
+	/* genMode: 1 texgen, 0 colour channels, 1 TEV stage */
+	gx_load_bp_reg(0x00000001);
+
+	xo = 0x156;
+	yo = 0x156;
+	gx_load_bp_reg(0x20000000 | ((xo & 0x7ff) << 12) | (yo & 0x7ff));
+	gx_load_bp_reg(0x21000000 |
+		       (((xo + width  - 1) & 0x7ff) << 12) |
+		       ((yo + height - 1) & 0xfff));
+
+	/* TEV stage 0: output zero colour/alpha, no texture input. */
+	gx_load_bp_reg(0xC008FFFF);
+	gx_load_bp_reg(0xC108FFF0);
+	gx_load_bp_reg(0x25000000);
+
+	gx_load_xf_reg(0x103f, 1);
+	gx_load_xf_reg(0x1040, 0x280);
+	gx_load_xf_reg(0x1050, 0x3F);
+	gx_load_identity_pos_mtx0();
+
+	gx_load_xf_regs_n(0x101a, 6);
+	wg_f32_bits(f32_from_u16(width >> 1));
+	wg_f32_bits(F32_NEG(f32_from_u16(height >> 1)));
+	wg_f32_bits(F32_16M);
+	wg_f32_bits(f32_from_u16((width >> 1) + 342));
+	wg_f32_bits(f32_from_u16((height >> 1) + 342));
+	wg_f32_bits(F32_16M);
+
+	gx_load_xf_regs_n(0x1020, 7);
+	wg_f32_bits(f32_div_u16(2, width));
+	wg_f32_bits(F32_NEG_ONE);
+	wg_f32_bits(F32_NEG(f32_div_u16(2, height)));
+	wg_f32_bits(F32_ONE);
+	wg_f32_bits(F32_NEG_ONE);
+	wg_f32_bits(F32_ZERO);
+	gx_wr32be(1);
+
+	/* VCD/VAT: direct XY position plus direct TEX0, but TEV texture disabled. */
+	gx_load_cp_reg(0x50, 0x200);
+	gx_load_cp_reg(0x60, 0x001);
+	gx_load_cp_reg(0x70, 0x41200008);
+	gx_load_cp_reg(0x80, 0x80000000);
+	gx_load_cp_reg(0x90, 0x00000000);
+}
+
 /*
  * gx_setup_texture_rgb565 - bind a tiled RGB565 buffer to texmap 0.
  *
@@ -601,6 +655,20 @@ static void gx_draw_fullscreen_quad(u16 width, u16 height)
 	wg_f32_bits(F32_ZERO); wg_f32_bits(fh);
 }
 
+static void gx_draw_pos_quad(u16 width, u16 height)
+{
+	u32 fw = f32_from_u16(width);
+	u32 fh = f32_from_u16(height);
+
+	gx_wr8(0x80);			/* GX_QUADS | vtxfmt 0 */
+	gx_wr16be(4);
+
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(fw);       wg_f32_bits(F32_ZERO);
+	wg_f32_bits(fw);       wg_f32_bits(fh);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(fh);
+}
+
 /* ------------------------------------------------------------------ */
 /* EFB -> XFB display copy                                             */
 /* ------------------------------------------------------------------ */
@@ -667,11 +735,15 @@ EXPORT_SYMBOL_GPL(gcn_gx_copy_efb_to_xfb);
 static void gx_submit_cmds(void)
 {
 	static int frame_log;	/* log frames 0-3 in detail */
+	static bool logged_first_slow;
+	static bool logged_first_stall;
 	bool do_log = frame_log < 4 || gx_log_next_submit;
+	u32 log_frame = gx_log_next_submit ? gx_current_frame : frame_log;
 	u32 phys_start = (u32)virt_to_phys(gx_fifo_buf);
 	u32 phys_end   = phys_start + GX_FIFO_SIZE - 4;
 	u32 phys_wt;
 	u32 cp_rd, cp_wt;
+	int timeout;
 
 	/* Pad to 32-byte boundary (GP DMA requires 32-byte alignment) */
 	while (fifo_pos & 0x1f)
@@ -699,30 +771,80 @@ static void gx_submit_cmds(void)
 	pi_write(PI_REG_FIFO_CTRL, PI_FIFO_CTRL_EN);
 
 	if (do_log)
-		pr_info("gcn-gx: f%d pre: SR=%04x RD=%04x WT=%04x pos=%u\n",
-			gx_log_next_submit ? 360 : frame_log,
-			cp_read(CP_REG_STATUS),
-			0, phys_wt - phys_start, fifo_pos);
+		pr_info("gcn-gx: f%u pre: SR=%04x RD=%04x WT=%04x pos=%u\n",
+			log_frame, cp_read(CP_REG_STATUS), 0,
+			phys_wt - phys_start, fifo_pos);
 
 	out_be16(pe_regs + PE_REG_CTRL_STAT, 0x0003);
 	cp_write(CP_REG_CTRL, CP_CR_GPRESET | CP_CR_LINKEN);
 
-	udelay(2000);
+	/*
+	 * DIAGNOSTIC: give the raster/PE backend much longer to drain.  The
+	 * first hard stall lands inside the vertex payload after ~14 frames,
+	 * which points at backend back-pressure rather than a malformed FIFO.
+	 */
+	udelay(10000);
 
 	/* Read back RD after delay: confirms GP consumed commands */
+	cp_rd = ((u32)cp_read(CP_REG_RD_HI) << 16) |
+		cp_read(CP_REG_RD_LO);
+	cp_wt = ((u32)cp_read(CP_REG_WT_HI) << 16) |
+		cp_read(CP_REG_WT_LO);
+	if (cp_rd != cp_wt) {
+		if (!logged_first_slow) {
+			pr_warn("gcn-gx: first_slow f%u SR=%04x RDoff=%04x WToff=%04x PIoff=%04x pos=%u\n",
+				gx_current_frame, cp_read(CP_REG_STATUS),
+				cp_rd - phys_start, cp_wt - phys_start,
+				pi_read(PI_REG_FIFO_WPTR) - phys_start, fifo_pos);
+			logged_first_slow = true;
+		}
+
+		/*
+		 * Do not stop CP while it is mid-FIFO.  Frame 13 has been seen at
+		 * RD=0x120/WT=0x180 after the fixed 2 ms delay; disabling CP there
+		 * truncates the command stream and leaves later frames unrestartable.
+		 */
+		timeout = 800;
+		while (timeout-- && cp_rd != cp_wt) {
+			udelay(10);
+			cp_rd = ((u32)cp_read(CP_REG_RD_HI) << 16) |
+				cp_read(CP_REG_RD_LO);
+			cp_wt = ((u32)cp_read(CP_REG_WT_HI) << 16) |
+				cp_read(CP_REG_WT_LO);
+		}
+	}
 	if (do_log) {
-		cp_rd = ((u32)cp_read(CP_REG_RD_HI) << 16) |
-			cp_read(CP_REG_RD_LO);
-		cp_wt = ((u32)cp_read(CP_REG_WT_HI) << 16) |
-			cp_read(CP_REG_WT_LO);
-		pr_info("gcn-gx: f%d post: SR=%04x RDoff=%04x WToff=%04x\n",
-			gx_log_next_submit ? 360 : frame_log,
-			cp_read(CP_REG_STATUS),
+		pr_info("gcn-gx: f%u post: SR=%04x RDoff=%04x WToff=%04x\n",
+			log_frame, cp_read(CP_REG_STATUS),
 			cp_rd - phys_start, cp_wt - phys_start);
 		if (gx_log_next_submit)
 			gx_log_next_submit = false;
 		else
 			frame_log++;
+	}
+	if (!logged_first_stall && cp_rd != cp_wt) {
+		u32 off = cp_rd - phys_start;
+		u8 *fifo = (u8 *)gx_fifo_buf;
+		u32 dump = off >= 16 ? off - 16 : 0;
+
+		pr_warn("gcn-gx: first_stall f%u SR=%04x RDoff=%04x WToff=%04x PIoff=%04x pos=%u\n",
+			gx_current_frame, cp_read(CP_REG_STATUS),
+			off, cp_wt - phys_start,
+			pi_read(PI_REG_FIFO_WPTR) - phys_start, fifo_pos);
+		pr_warn("gcn-gx: stall_bytes @%04x: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+			dump,
+			fifo[dump + 0], fifo[dump + 1], fifo[dump + 2], fifo[dump + 3],
+			fifo[dump + 4], fifo[dump + 5], fifo[dump + 6], fifo[dump + 7],
+			fifo[dump + 8], fifo[dump + 9], fifo[dump + 10], fifo[dump + 11],
+			fifo[dump + 12], fifo[dump + 13], fifo[dump + 14], fifo[dump + 15]);
+		dump = off;
+		pr_warn("gcn-gx: stall_bytes @%04x: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+			dump,
+			fifo[dump + 0], fifo[dump + 1], fifo[dump + 2], fifo[dump + 3],
+			fifo[dump + 4], fifo[dump + 5], fifo[dump + 6], fifo[dump + 7],
+			fifo[dump + 8], fifo[dump + 9], fifo[dump + 10], fifo[dump + 11],
+			fifo[dump + 12], fifo[dump + 13], fifo[dump + 14], fifo[dump + 15]);
+		logged_first_stall = true;
 	}
 
 	cp_write(CP_REG_CTRL, 0);
@@ -744,38 +866,22 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	u32 phase = frame_count++;
 
 	fifo_pos = 0;
+	gx_current_frame = phase;
 
-	if (phase >= 360 && phase < 900) {
-		static const u16 colors[3] = {0xF800, 0x07E0, 0x001F}; /* R G B */
-		u16 c = colors[(phase - 360) / 180];
-		u32 fill = ((u32)c << 16) | c;
-		u32 *p = (u32 *)gx_tex_buf;
-		u32 n = ((u32)width * height) / 2;
-
-		while (n--)
-			*p++ = fill;
-
-		flush_dcache_range((unsigned long)gx_tex_buf,
-				   (unsigned long)gx_tex_buf +
-				   (unsigned long)width * height * 2);
-
-		gx_setup_2d_state(width, height);
-		gx_setup_texture_rgb565(gx_tex_buf, width, height);
-		gx_draw_fullscreen_quad(width, height);
-	} else {
-		gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
-
-		flush_dcache_range((unsigned long)gx_tex_buf,
-				   (unsigned long)gx_tex_buf +
-				   (unsigned long)width * height * 2);
-
-		gx_setup_2d_state(width, height);
-		gx_setup_texture_rgb565(gx_tex_buf, width, height);
-		gx_draw_fullscreen_quad(width, height);
-	}
+	/*
+	 * DIAGNOSTIC: include direct TEX0 vertex data and texcoord generation,
+	 * but leave TEV texture fetch disabled.  This isolates CP/VAT TEX0 parsing
+	 * from TMU texture reads.
+	 */
+	gx_setup_texcoord_parse_state(width, height);
+	gx_draw_fullscreen_quad(width, height);
 	if (phase == 360)
 		gx_log_next_submit = true;
-	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
+	/*
+	 * DIAGNOSTIC: skip EFB->XFB copy to isolate whether the copy/PE backend
+	 * is what eventually backs up the GP.  If frames continue to drain without
+	 * first_stall, the draw path is viable and the bug is in copy/sync state.
+	 */
 	gx_submit_cmds();
 
 	/* Diagnostic: log tex and XFB content for frames 0-3 and at color start */
