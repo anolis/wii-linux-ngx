@@ -546,7 +546,11 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0x41000018);	/* colour/alpha update enabled */
 	gx_load_bp_reg(0xF33F0000);	/* alpha test always passes */
 
-	/* genMode: 1 texgen, 0 colour channels, 1 TEV stage */
+	/*
+	 * DIAGNOSTIC: GENMODE numtexcoordgens=1 with XF=0 and pos-only vertices.
+	 * Tests whether GENMODE=1 alone (no VCD TEX0, no XF texgen output) is
+	 * sufficient to stall the rasterizer waiting for texcoords that never arrive.
+	 */
 	gx_load_bp_reg(0x00000001);
 
 	xo = 0x156;
@@ -567,8 +571,8 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0xC108FFF0);
 	gx_load_bp_reg(0x25000380);
 
-	gx_load_xf_reg(0x103f, 1);
-	gx_load_xf_reg(0x1040, 0x201);	/* MTX2x4, src=TEX0: (4<<7)|1 */
+	gx_load_xf_reg(0x103f, 0);	/* XF=0: no texcoord output from XF */
+	gx_load_xf_reg(0x1040, 0x201);
 	gx_load_xf_reg(0x1050, 0x3F);
 	gx_load_identity_pos_mtx0();
 
@@ -600,10 +604,10 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0x30000000 | (u32)(width  - 1));
 	gx_load_bp_reg(0x31000000 | (u32)(height - 1));
 
-	/* VCD/VAT: direct XY position plus direct TEX0. */
+	/* VCD/VAT: pos-only — no TEX0 in vertex stream, no XF texgen output. */
 	gx_load_cp_reg(0x50, 0x200);
-	gx_load_cp_reg(0x60, 0x001);
-	gx_load_cp_reg(0x70, 0x41200008);
+	gx_load_cp_reg(0x60, 0x000);
+	gx_load_cp_reg(0x70, 0x00000008);
 	gx_load_cp_reg(0x80, 0x80000000);
 	gx_load_cp_reg(0x90, 0x00000000);
 }
@@ -937,7 +941,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	 * Normalized texcoords (0..1 at quad corners) should drain cleanly.
 	 */
 	gx_setup_texcoord_parse_state(width, height);
-	gx_draw_fullscreen_quad(width, height);
+	gx_draw_pos_quad(width, height);
 	if (phase == 360)
 		gx_log_next_submit = true;
 	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
