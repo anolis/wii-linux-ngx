@@ -81,8 +81,12 @@
 #define GX_FIFO_SIZE		(64 * 1024)
 #define GX_FIFO_HIWATERMARK	(16 * 1024)
 
-/* Texture tile buffer: max FB is 640×576 (PAL) RGB565 = 737,280 bytes */
+/* Texture tile buffer: max FB is 640×576 (PAL) RGB565 = 737,280 bytes.
+ * Must live in MEM1: the GX texture unit is GameCube-era hardware that
+ * cannot address MEM2 (0x10000000+).  kmalloc returns MEM2 on Wii Linux
+ * (MEM1 and MEM2 are coalesced).  Use the DTS-reserved region instead. */
 #define GX_TEX_BUF_SIZE		(640 * 576 * 2)
+#define GX_TEX_BUF_MEM1_PHYS	0x01200000	/* reserved in wii.dts */
 
 /* gx_accel_ready is set to true by gcn_gx_init() on success */
 extern bool gx_accel_ready;

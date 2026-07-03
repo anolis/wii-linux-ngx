@@ -702,41 +702,17 @@ static void gx_submit_cmds(void)
  */
 void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
-	u32 ctrl;
-
-	/*
-	 * DIAGNOSTIC: EFB clear-to-red + copy only.  No texture pipeline.
-	 *
-	 * BP 0xE0/0xE1 set the EFB hardware clear colour (A=FF R=FF G=00 B=00
-	 * = bright red).  COPY_CTRL_CLEAR makes the EFB→XFB copy fill the XFB
-	 * with the clear colour converted to YUYV instead of rendering pixels.
-	 *
-	 * If the display flashes red even briefly, the EFB→XFB copy path is
-	 * working end-to-end and we can restore the full texture pipeline.
-	 * If the display never changes, the copy itself or its address/timing
-	 * is wrong.
-	 */
 	fifo_pos = 0;
 
-	/* Clear colour: A=0xFF, R=0xFF, G=0x00, B=0x00 (bright red) */
-	gx_load_bp_reg(0xE000FFFF);	/* BP 0xE0: [15:8]=A [7:0]=R */
-	gx_load_bp_reg(0xE1000000);	/* BP 0xE1: [15:8]=G [7:0]=B */
+	gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
+	flush_dcache_range((unsigned long)gx_tex_buf,
+			   (unsigned long)gx_tex_buf +
+			   (unsigned long)width * height * 2);
 
-	/* EFB copy source covers the full framebuffer */
-	gx_load_bp_reg((BP_DISP_COPY_TL << 24) | 0);
-	gx_load_bp_reg((BP_DISP_COPY_WH << 24) |
-		       (((u32)(height - 1) & 0x3ff) << 10) |
-		       ((u32)(width  - 1) & 0x3ff));
-	gx_load_bp_reg((BP_DISP_COPY_DST << 24) | ((width * 2) >> 5));
-	gx_load_bp_reg((BP_DISP_COPY_ADDR << 24) | ((xfb_phys >> 5) & 0xffffff));
-
-	/* Execute copy with CLEAR: fills EFB then XFB with red clear colour */
-	ctrl = (BP_DISP_COPY_CTRL << 24) |
-	       (GX_GM_1_0 << COPY_CTRL_GAMMA_SHIFT) |
-	       COPY_CTRL_CLEAR |
-	       COPY_CTRL_EXECUTE;
-	gx_load_bp_reg(ctrl);
-
+	gx_setup_2d_state(width, height);
+	gx_setup_texture_rgb565(gx_tex_buf, width, height);
+	gx_draw_fullscreen_quad(width, height);
+	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
 	gx_submit_cmds();
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
@@ -808,16 +784,17 @@ int gcn_gx_init(void)
 	if (ret)
 		goto err_hw;
 
-	pr_info("gcn-gx: init: F kmalloc tex buf\n");
-	gx_tex_raw = kmalloc(GX_TEX_BUF_SIZE + 32, GFP_KERNEL);
-	pr_info("gcn-gx: init: G kmalloc done ptr=%p\n", gx_tex_raw);
-	pr_info("gcn-gx: init: G1\n");
-	if (!gx_tex_raw) {
-		ret = -ENOMEM;
-		goto err_fifo;
-	}
-	gx_tex_buf = PTR_ALIGN(gx_tex_raw, 32);
-	pr_info("gcn-gx: init: G2 tb=%p\n", gx_tex_buf);
+	/*
+	 * Texture tile buffer: must be in MEM1.  The GX texture unit is
+	 * GameCube-era hardware; it cannot address MEM2 (0x10000000+).
+	 * kmalloc returns MEM2 on Wii Linux because MEM1 and MEM2 are
+	 * coalesced into one logical range.  Use the DTS-reserved region.
+	 */
+	gx_tex_raw = NULL;
+	gx_tex_buf = (void *)__va(GX_TEX_BUF_MEM1_PHYS);
+	memset(gx_tex_buf, 0, GX_TEX_BUF_SIZE);
+	pr_info("gcn-gx: init: tex_buf phys=0x%08x virt=%p\n",
+		GX_TEX_BUF_MEM1_PHYS, gx_tex_buf);
 
 	pr_info("gcn-gx: init: H done (accel ON)\n");
 	gx_accel_ready = true;
@@ -840,6 +817,7 @@ void gcn_gx_exit(void)
 	gx_wait_idle();
 	cp_write(CP_REG_CTRL, 0);
 
+	/* gx_tex_raw is NULL (tex_buf is a MEM1 reserve, not kmalloc'd) */
 	kfree(gx_tex_raw);
 	if (gx_fifo_buf_raw)
 		kfree(gx_fifo_buf_raw);
