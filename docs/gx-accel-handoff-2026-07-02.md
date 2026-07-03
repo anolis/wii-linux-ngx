@@ -330,6 +330,29 @@ Current diagnostic state:
 - quad vertices include direct TEX0 payload, currently all zero
 - TEV texture fetch disabled, EFB->XFB copy still enabled
 
+Boot result:
+
+```text
+f0 post: SR=000c RDoff=0180 WToff=0180
+f1 post: SR=000c RDoff=0180 WToff=0180
+f2 post: SR=0004 RDoff=0180 WToff=0180
+pipeline did not go idle after submit (SR=0x0004)
+f3 pre:  SR=0000 RD=0000 WT=0180 pos=384
+first_stall f13 SR=0000 RDoff=0120 WToff=0180 PIoff=0180 pos=384
+```
+
+Interpretation: the frame-2 failure does not require XF sourcing TEX0.  TEX0
+attribute presence is enough to trigger it when texgen output is enabled, even
+when XF 0x1040 sources generated texcoord 0 from position and the TEX0 payload is
+all zero.  The frame-2 FIFO drains completely; the later frame-13 read-pointer
+stall is again a cascaded failure after the downstream pipeline remains non-idle.
+
+Next split test: remove the TEX0 vertex attribute again, but set XF 0x1040 back
+to `0x200` (`sourcerow=GX_TG_TEX0`).  If that drains, source selection alone is
+safe and the bug specifically requires a TEX0 attribute while texgen output is
+enabled.  If it stalls, either source selection or missing TEX0 source state can
+trigger the backend hang.
+
 ### Step 2: Expand to full texcoord path
 
 Once SR=000c with XF=1 + any working texcoord config:
