@@ -583,6 +583,17 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	wg_f32_bits(F32_ZERO);
 	gx_wr32be(1);
 
+	/*
+	 * BP 0x30/0x31: suSsize/suTsize for texcoord 0.
+	 * The rasterizer uses these to compute per-pixel texcoord stepping and
+	 * LOD derivatives even when TEV texture fetch is disabled (texenable=0).
+	 * Without explicit values the rasterizer uses whatever mini left, which
+	 * may not match our large unnormalized texcoords (0..width, 0..height),
+	 * causing it to permanently stall on the first non-zero vertex (frame 2).
+	 */
+	gx_load_bp_reg(0x30000000 | (u32)(width  - 1));
+	gx_load_bp_reg(0x31000000 | (u32)(height - 1));
+
 	/* VCD/VAT: direct XY position plus direct TEX0, but TEV texture disabled. */
 	gx_load_cp_reg(0x50, 0x200);
 	gx_load_cp_reg(0x60, 0x001);
