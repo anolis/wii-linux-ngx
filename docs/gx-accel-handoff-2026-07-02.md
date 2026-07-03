@@ -28,13 +28,77 @@ a06c3538569e Stop GX CP after submitted FIFO drains
 ...
 ```
 
+### Session 2026-07-03 changes (not yet committed)
+
+All changes listed here are live in the deployed build but not yet in a git commit.
+
+- **Fixed PE register offset**: `PE_REG_CTRL_STAT = 0` (byte offset 0x00), not 1.
+  Previous code wrote to pe_regs[1] = PE_TOKEN_VALUE, doing nothing useful.
+- **Fixed PE clear write**: `out_be16(pe_regs + PE_REG_CTRL_STAT, 0x0003)` — clears
+  status bits 2-3 (PEToken/PEFinish) while preserving enable bits 0-1.
+- **Reduced sync delay**: 8ms → 2ms. Boot log proves copy completes in <1ms.
+- **Added BP 0x66 ×2 (BPMEM_TX_INVALIDATE)** in `gx_setup_texture_rgb565`:
+  Forces the TMU to re-fetch from main memory each frame instead of serving the
+  first frame's cached data.  Sent twice for reliability (same as libogc).
+- **Added multi-frame diagnostic logging** (4 frames, controlled by `frame_log` counter):
+  Logs CP SR, RD, WT before/after GP enable, plus XFB readback for frames 0-3 and 360.
+- **Added solid color cycling test** (frames 360-900) in `gcn_gx_blit_fb_rgb565`:
+  Fills `gx_tex_buf` with solid red/green/blue to verify color output independently
+  of `vfb_mem` content.  Active while `frame_count` is in the 360-900 range.
+- **Fixed BP 0x41 (BLENDMODE) missing**: Added `gx_load_bp_reg(0x41000018)` to
+  `gx_setup_2d_state` — see §11.
+- **Fixed BP 0xF3 (ALPHA_COMPARE) missing**: Added `gx_load_bp_reg(0xF33F0000)` to
+  `gx_setup_2d_state` — see §13 (★ most recent fix, not yet boot-tested).
+
+**Current deployed build: `b1c85bf6`**
+
+## Onboard diagnostic logging
+
+**The kernel is booting with `init=/init-diag.sh` in the bootargs.**  This script:
+
+1. Mounts `/proc` and `/sys`.
+2. Remounts rootfs read-write.
+3. Sleeps 20 seconds (captures the full color-cycling test window).
+4. Writes `dmesg` output to `/dmesg.txt` on the rootfs partition.
+5. Appends `/proc/bus/input/devices` and `/dev/input/` listing for USB input debugging.
+6. Calls `sync`, then `exec /bin/sh -l` on `/dev/console` (interactive shell available after ~20s).
+
+Script location on the rootfs (WII-LINUX-NGX1 partition):
+
+```text
+/media/anolis/WII-LINUX-NGX1/init-diag.sh
+```
+
+Script contents:
+
+```sh
+#!/bin/sh
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -o remount,rw /
+sleep 20
+dmesg > /dmesg.txt
+echo "--- /proc/bus/input/devices ---" >> /dmesg.txt
+cat /proc/bus/input/devices >> /dmesg.txt 2>&1
+echo "--- /dev/input ---" >> /dmesg.txt
+ls -la /dev/input/ >> /dmesg.txt 2>&1
+sync
+exec /bin/sh -l </dev/console >/dev/console 2>/dev/console
+```
+
+To retrieve results: boot Wii, wait ~25 seconds for logging to complete, power off, move SD card to host, read `/media/anolis/WII-LINUX-NGX1/dmesg.txt`.
+
+All `gcn-gx:` log lines are written to the kernel ring buffer and captured by this script.
+
 ## Build and deploy
 
 Build command:
 
 ```sh
-make ARCH=powerpc CROSS_COMPILE=powerpc-linux-gnu- zImage -j$(nproc)
+make ARCH=powerpc CROSS_COMPILE=powerpc-linux-gnu- -j$(nproc)
 ```
+
+Output image: `arch/powerpc/boot/dtbImage.wii`
 
 Deploy target:
 
@@ -45,32 +109,37 @@ Deploy target:
 Deploy command:
 
 ```sh
-cp arch/powerpc/boot/zImage /media/anolis/BOOTWII/gumboot/zImage.ngx
-sha256sum /media/anolis/BOOTWII/gumboot/zImage.ngx
-sync /media/anolis/BOOTWII/gumboot/zImage.ngx
+cp arch/powerpc/boot/dtbImage.wii /media/anolis/BOOTWII/gumboot/zImage.ngx
+sync
 ```
 
-The SD card is manually moved between host and Wii, so `/media/anolis/BOOTWII` may disappear between iterations.
+The SD card is manually moved between host and Wii.  BOOTWII (FAT, ~40 MB) and WII-LINUX-NGX1 (ext2, ~338 MB) are separate partitions on the same card.
 
 ## Key files
 
 Main GX driver:
 
 ```text
-drivers/video/fbdev/gcn-gx.c
-drivers/video/fbdev/gcn-gx.h
+drivers/video/fbdev/gcn-gx.c   ← all GX register programming
+drivers/video/fbdev/gcn-gx.h   ← register addresses and bit definitions
 ```
 
 Framebuffer / VI integration:
 
 ```text
-drivers/video/fbdev/gcnfb.c
+drivers/video/fbdev/gcnfb.c    ← vi_dispatch_vtrace calls gcn_gx_blit_fb_rgb565
 ```
 
-Wii memory reservation:
+Wii memory reservation (FIFO, tex buf, XFB all reserved here):
 
 ```text
 arch/powerpc/boot/dts/wii.dts
+```
+
+Boot diagnostic script (currently active):
+
+```text
+/media/anolis/WII-LINUX-NGX1/init-diag.sh
 ```
 
 ## Critical discoveries (chronological)
@@ -173,89 +242,47 @@ After enabling the GP with `CP_CR_LINKEN | CP_CR_GPRESET` and writing `PI_FIFO_C
 
 Symptom: repeated `"timed out waiting for FIFO empty (SR=0x0000)"` even though the GP had finished.
 
-Fix: replace the polling wait with a fixed `udelay(2000)`.  At 288 bytes of commands the GP finishes in well under 1 ms; 2 ms is safe within the 16 ms vsync budget and eliminates the spurious timeout.
+Fix: replace the polling wait with a fixed `udelay(2000)`.  At ~300 bytes of commands the GP finishes in well under 1 ms; 2 ms is safe within the 16 ms vsync budget and eliminates the spurious timeout.
 
 ### 7. EFB→XFB copy confirmed reaching the display (vertical-bars breakthrough)
 
 After all fixes above were combined into a diagnostic path that:
 
-- Sets EFB clear colour to bright red (BP 0xE0 = `0xE000FFFF`, BP 0xE1 = `0xE1000000`)
+- Sets EFB clear colour to bright red
 - Does an EFB→XFB copy with `COPY_CTRL_CLEAR | COPY_CTRL_EXECUTE`
 
 the display showed **vertical bars going all across the screen** instead of solid red.
 
-This is a confirmed breakthrough:
-
+This confirmed that:
 - The copy IS executing and writing to the physical XFB.
 - The VI IS scanning that XFB and displaying it on the TV.
 - Bars rather than solid red meant something was still wrong — diagnosed as the stride bug (see §8).
 
-### 8. EFB→XFB copy stride: 32-byte cache line units, not 16-byte (★ latest fix)
+### 8. EFB→XFB copy stride: 32-byte cache line units, not 16-byte
 
 BP register `0x4D` (`dispCopyDst`) stores the XFB stride in **32-byte units** (one GX cache line), not 16-byte units.
 
-The original comment and code were wrong:
-
-```c
-/* WRONG — comment said "units of 16 bytes" */
-gx_load_bp_reg((BP_DISP_COPY_DST << 24) | ((width * 2) >> 4));
-```
-
 For `width = 640`:
 - `(640 × 2) >> 4` = **80** → hardware interprets as 80 × 32 = **2560 bytes/line** ✗
-- `(640 × 2) >> 5` = **40** → hardware interprets as 40 × 32 = **1280 bytes/line** ✓  
-  (640 pixels × 2 bytes YUYV = 1280 bytes per scanline — correct)
+- `(640 × 2) >> 5` = **40** → hardware interprets as 40 × 32 = **1280 bytes/line** ✓
 
-**Effect of the wrong stride on display output:**
-
-The GP wrote 1280 bytes of red YUYV at every 2560-byte offset (lines 0, 2560, 5120 …).  The 1280-byte gaps between GX writes still contained software-transcoded text from `vi_transcode_RGB565`.  When VI scanned this XFB at the correct stride of 1280 bytes per scanline:
-
-- Even scanlines: GX wrote here → appeared red (or the YUYV equivalent)
-- Odd scanlines: GX did NOT write here → still showed SW text
-
-Alternating bands of red and text = "vertical bars" on a TV display.
-
-**Fix** (applied in both copy paths):
+Fix (applied in all copy paths):
 
 ```c
-/* CORRECT — units of 32 bytes (one cache line) */
 gx_load_bp_reg((BP_DISP_COPY_DST << 24) | ((width * 2) >> 5));
 ```
 
-**Expected boot result after this fix:** display shows solid red while the EFB-clear diagnostic path is active.  If confirmed, the EFB→XFB copy path is fully verified and the texture pipeline can be restored.
+### 9. COPY_CTRL_CLEAR is clear-AFTER-copy, not clear-before
 
-## CP status register (SR) field meanings
-
-After the endian fix, observed values and their meanings:
-
-| SR value | Meaning |
-|----------|---------|
-| `0x0008` | GP stopped / idle (CP_CTRL = 0 after reset) |
-| `0x000c` | GP enabled + idle (FIFO empty) |
-| `0x0004` | GP enabled + running (commands in flight) |
-| `0x0000` | Transitional / uncertain |
-
-### 9. COPY_CTRL_CLEAR is clear-AFTER-copy, not clear-before (★ session 2)
-
-After the stride fix, the display showed **RGB pixel noise** (random coloured pixels, full screen) instead of solid red.
-
-This confirmed that:
-- The stride fix worked — GP is now writing all 480 lines of the XFB (full-screen noise vs. the earlier half-screen alternating bands).
-- `COPY_CTRL_CLEAR` (BP 0x52 bit 11) does **NOT** fill the EFB with the clear colour and then copy it.  It copies the current EFB contents **first**, then fills the EFB with the clear colour for the next frame.
-
-Mini leaves the EFB in an uninitialised state.  Each frame the GP copies that random content to the XFB (noise), then clears the EFB to our red colour — which is then copied as noise again next frame by the same mechanism.
+`COPY_CTRL_CLEAR` (BP 0x52 bit 11) does **NOT** fill the EFB with the clear colour and then copy it.  It copies the current EFB contents **first**, then fills the EFB with the clear colour for the next frame.
 
 `COPY_CTRL_CLEAR` is a "prepare EFB for next frame" operation, not a "fill XFB with colour" operation.  The only way to get controlled content into the XFB is to **draw into the EFB** via the GX rendering pipeline first, then do a plain copy without `CLEAR`.
 
-### 10. gx_tex_buf must be in MEM1 (★ session 2)
+### 10. gx_tex_buf must be in MEM1
 
-The GX texture fetch unit is GameCube-era hardware.  GameCube has only MEM1 (physical 0x00000000–0x01800000).  The Wii adds MEM2 (physical 0x10000000–0x14000000), but the GX hardware predates it and **cannot generate MEM2 bus addresses** for texture fetches.
+The GX texture fetch unit is GameCube-era hardware and cannot address MEM2 (0x10000000+).  `kmalloc` and `GFP_DMA` both return MEM2 addresses on Wii Linux (MEM1+MEM2 are coalesced).  Programming BP 0x94 with a MEM2 physical address silently fetches from the wrong bus.
 
-`kmalloc(GX_TEX_BUF_SIZE, GFP_KERNEL)` returned a MEM2 virtual address on Wii Linux (~`0xC2900000` → physical ~`0x12900000`) because MEM1 and MEM2 are coalesced into a single logical range.  `GFP_DMA` did not help.
-
-When `gx_setup_texture_rgb565` programmed BP 0x94 with `(phys >> 5)` for a MEM2 address, the texture unit fetched from the wrong bus, producing garbage in the EFB.
-
-Fix (now applied):
+Fix:
 
 ```dts
 /memreserve/ 0x01200000 0x000C0000; /* GX texture tile buffer 768 KB */
@@ -266,51 +293,152 @@ Fix (now applied):
 gx_tex_buf = (void *)__va(GX_TEX_BUF_MEM1_PHYS);
 ```
 
-Physical `0x01200000` is safely in MEM1.  `phys >> 5 = 0x90000` (no bit-23 issue).  The DTS reserve prevents the allocator from handing this range to other users.
+### 11. BP 0x41 (BLENDMODE) not set → colorupdate=0 → PE silently drops all pixels
 
-## Current pipeline state
+**Symptom** (builds `be9660ba` and `6176efff`):
 
-`gcn_gx_blit_fb_rgb565()` has the full texture pipeline restored:
+```text
+[   15.597119] gcn-gx: f360 tex0=f800f800 xfb0=00800080 xfb1=00800080
+```
+
+At frame 360: `gx_tex_buf` correctly filled with solid red (`tex0=0xf800f800`), but `xfb0` remains YUYV black (`0x00800080`).  GP consumed all commands every frame.  Rasterizer was running; nothing reached the EFB.
+
+**Root cause**: BP 0x41 (`BPMEM_BLENDMODE`) hardware reset value = 0x00.  Bit 3 (`colorupdate`) = 0 means the Pixel Engine **silently discards every rasterized pixel** without writing to the EFB.
+
+BPMEM_BLENDMODE bit layout:
+
+```
+[0]     blendenable
+[1]     logicopenable
+[2]     dither
+[3]     colorupdate  ← must be 1 for draws to write EFB color
+[4]     alphaupdate
+[7:5]   dstfactor
+[10:8]  srcfactor
+[11]    subtract
+[15:12] logicmode
+```
+
+**Fix** (added to `gx_setup_2d_state`):
 
 ```c
-fifo_pos = 0;
-gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
-flush_dcache_range((unsigned long)gx_tex_buf,
-                   (unsigned long)gx_tex_buf + width * height * 2);
-gx_setup_2d_state(width, height);
-gx_setup_texture_rgb565(gx_tex_buf, width, height);
-gx_draw_fullscreen_quad(width, height);
-gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);   /* no CLEAR */
-gx_submit_cmds();
+/* colorupdate=1 (bit 3), alphaupdate=1 (bit 4), no blending */
+gx_load_bp_reg(0x41000018);
+```
+
+### 12. EHCI spinlock BUG and DI1 interrupt delivery
+
+At `t ≈ 0.508s` a pre-existing EHCI USB 2.0 controller bug fires and holds a spinlock for ~2.5 seconds:
+
+```text
+[    0.508101] BUG: spinlock bad magic at call site ehci_halt+0x...
+[    3.064244] BUG: spinlock lockup suspected...
+```
+
+The GX blit frame counter stops at frame 3 during this window.  However, frame 360 appears at `t = 15.6s`, confirming DI1 resumes after the lockup.  DI1 fires at ~23-24 Hz (every-other-field VI behaviour, not 60 Hz).
+
+The EHCI BUG does NOT permanently kill DI1 and is NOT the root cause of display issues.
+
+### 13. BP 0xF3 (ALPHA_COMPARE) not set → alpha test NEVER → all fragments discarded (★ most recent fix — not yet boot-tested)
+
+**Symptom** (build `6176efff`, after adding BP 0x41 fix from §11):
+
+```text
+[   15.096648] gcn-gx: f360 tex0=f800f800 xfb0=00800080 xfb1=00800080
+```
+
+`xfb0` still `0x00800080` after the BLENDMODE fix.  `colorupdate=1` is now set, but pixels are still not reaching the EFB.
+
+**Root cause**: BP 0xF3 (`BPMEM_ALPHA_COMPARE`) hardware reset value = 0x00.
+
+BPMEM_ALPHA_COMPARE bit layout (from Dolphin BPMemory.h `AlphaTest`):
+
+```
+[7:0]   ref0   — reference value for comparison 0
+[15:8]  ref1   — reference value for comparison 1
+[18:16] comp0  — 0=NEVER, 1=LESS, 2=EQUAL, 3=LEQUAL, 4=GREATER, 5=NEQUAL, 6=GEQUAL, 7=ALWAYS
+[21:19] comp1  — same encoding
+[23:22] logic  — 0=AND, 1=OR, 2=XOR, 3=XNOR
+```
+
+Reset value: `comp0=NEVER (0)`, `comp1=NEVER (0)`, `logic=AND (0)`.  
+Result: `NEVER AND NEVER = ALWAYS_FAIL`.  **Every rasterized fragment is thrown away by the alpha test before it can reach the Pixel Engine**, making `colorupdate=1` completely irrelevant.
+
+The GX alpha test runs in the pixel pipeline between TEV output and EFB write.  On hardware (unlike Dolphin's emulation), there is no fast-path optimization — comp0=NEVER means exactly NEVER, discarding all fragments regardless of their actual alpha value.
+
+**Fix** (added to `gx_setup_2d_state`, after BP 0x41):
+
+```c
+/* comp0=ALWAYS (7), ref0=0, comp1=ALWAYS (7), ref1=0, logic=AND (0)
+ * 7<<16 | 7<<19 = 0x3F0000 → every fragment passes, none discarded */
+gx_load_bp_reg(0xF33F0000);
+```
+
+**The pattern**: ZMODE (BP 0x40), BLENDMODE (BP 0x41), and ALPHA_COMPARE (BP 0xF3) all have hardware reset values that discard pixels.  Each was found and fixed separately.  Always set all three explicitly in any GX 2D init sequence.
+
+**Expected result for build `b1c85bf6`**: At frame 360 (`t ≈ 15s`), `xfb0` should be a non-black YUYV value (approximately `0x515A51F0` for solid red under BT.601).  The display should visibly cycle red → green → blue over ~18 seconds from boot.
+
+## CP status register (SR) field meanings
+
+| SR value | Meaning |
+|----------|---------|
+| `0x0008` | GP stopped / idle (CP_CTRL = 0) |
+| `0x000c` | GP enabled + FIFO empty (idle, all commands consumed) |
+| `0x0004` | GP enabled + FIFO not empty (still processing) |
+| `0x0000` | Transitional / uncertain |
+
+## Current pipeline state (build `b1c85bf6`)
+
+`gx_setup_2d_state()` now sets these registers explicitly (in order):
+
+```c
+gx_load_bp_reg(0x40000000);  /* ZMODE:          Z disabled */
+gx_load_bp_reg(0x41000018);  /* BLENDMODE:      colorupdate=1, alphaupdate=1 */
+gx_load_bp_reg(0xF33F0000);  /* ALPHA_COMPARE:  comp0=ALWAYS, comp1=ALWAYS  */
+gx_load_bp_reg(0x00000001);  /* GENMODE:        1 texgen, 1 TEV stage        */
+gx_load_bp_reg(0x20...);     /* SCISSOR TL                                    */
+gx_load_bp_reg(0x21...);     /* SCISSOR BR                                    */
+gx_load_bp_reg(0xC008FFF8);  /* TEV COLOR:      output = texture color        */
+gx_load_bp_reg(0xC108FFD0);  /* TEV ALPHA:      output = texture alpha        */
+gx_load_bp_reg(0x280003C0);  /* TEV ORDER:      texmap=0, texcoord=0, enable  */
 ```
 
 `gcnfb.c` still runs `vi_transcode_RGB565` unconditionally as a safety net.  The GX blit runs after it each frame and overwrites the XFB if GX output is correct.
 
 ## Suggested next steps
 
-1. **Boot-test the restored pipeline.**  Observe the display.
-   - Expected: framebuffer content (text, console output) rendered by GX hardware, identical to the software-transcoded image but produced by the GP.
-   - If correct content appears → GX acceleration is working; move to cleanup.
-   - If garbage / wrong colours appear → tiling or texture/TEV setup is wrong; see below.
-   - If display shows the SW transcode output unchanged (no GX visible) → GP is running but EFB copy goes somewhere wrong; re-check `gx_fb_start` address.
+1. **Boot `b1c85bf6` and check dmesg.txt** (auto-written at t=20s by init-diag.sh):
+   - `f360 xfb0` should be non-black (e.g. `~0x515A51F0` for red).
+   - User should observe solid red → green → blue on the display between t≈15s and t≈50s.
 
-2. **If the image is wrong colour or distorted**, check the tiling with a single-frame dump:
-   - Add a `pr_info` with the first few bytes of `gx_tex_buf` after `gx_tile_rgb565`.
-   - Compare against the expected tiled layout for the known on-screen colours.
+2. **If color cycling confirms end-to-end pipeline works**:
+   - Remove the color cycling test block in `gcn_gx_blit_fb_rgb565`.
+   - Remove the 4-frame CP SR logging in `gx_submit_cmds`.
+   - Remove the XFB readback `pr_info` calls.
+   - Verify actual terminal content (fbcon text) renders correctly via GX.
 
-3. **Remove the SW transcode safety net** once GX output is visually correct.  Change `gcnfb.c` RGB565 path to GX-only.
+3. **Remove the SW transcode safety net** once GX output is visually confirmed correct.
+   In `gcnfb.c` RGB565 path, remove the `vi_transcode_RGB565` call.
 
-4. **Clean up**: remove diagnostic `pr_info` calls in `gx_submit_cmds`, remove `panic=10` and `init=/bin/sh` from bootargs once stable.
+4. **Commit the session's changes** — currently all sitting as uncommitted edits on `feature/gcn-gx-accel`.
+
+5. **Register a PE FINISH ISR** (future improvement): replace `udelay(2000)` with an interrupt-driven wait on the PE FINISH signal, freeing ~2ms of CPU time per frame.
 
 ## Known pitfalls
 
-- Do not interpret a frozen display as a CPU crash unless the shell/keyboard also dies.
-- Do not remove `flush_dcache_range()` for the command FIFO — GP DMA reads physical memory.
-- Do not revert CP accessors to generic `ioread16/iowrite16`; this breaks pointer programming.
+- **Do not interpret a frozen display as a CPU crash** — the screen can be static while the CPU boots normally.  Check keyboard/shell response before assuming a hard hang.
+- Do not remove `flush_dcache_range()` for the FIFO or texture buffer — GP DMA reads physical memory, not CPU cache.
+- Do not revert CP accessors to `ioread16/iowrite16` — must be `in_be16`/`out_be16`.
 - Do not leave `CP_CR_LINKEN` enabled between frames.
-- `GFP_DMA` does not force MEM1 on this platform (MEM1 and MEM2 are coalesced).
-- BP `0x4D` dispCopyDst is in **32-byte** units — `(width * 2) >> 5`, not `>> 4`.
-- CP FIFO address registers drop bit 23 of physical addresses — MEM2 addresses fail silently.
-- Do not trust CP status bits alone as an idle condition; `RD == WT` is more reliable.
-- `COPY_CTRL_CLEAR` (BP 0x52 bit 11) clears the EFB **after** the copy, not before.  It does not fill the XFB with the clear colour.  Use the rendering pipeline to populate the EFB.
-- The GX texture fetch unit cannot access MEM2 (0x10000000+).  `gx_tex_buf` and any other GPU-visible buffer must be in MEM1 via `/memreserve/` + `__va(phys)`.
+- `GFP_DMA` does not guarantee MEM1 on this platform (MEM1+MEM2 coalesced); use `/memreserve/` + `__va(phys)` for all GPU-visible buffers.
+- BP `0x4D` (dispCopyDst) is in **32-byte** units — `(width * 2) >> 5`, not `>> 4`.
+- PE_CTRL_STAT is at byte offset 0x00 from PE base (`pe_regs[0]`), not 0x02 (`pe_regs[1]`).
+- PE FINISH (BP 0x65) does not set a polling-visible bit; it fires a CPU interrupt.  Use `udelay(2000)` as the sync fence.
+- CP FIFO and texture buffer addresses: the hardware drops bit 23 of physical addresses — any buffer at a MEM2 address will silently read from the wrong location.
+- `COPY_CTRL_CLEAR` (BP 0x52 bit 11) clears the EFB **after** the copy, not before.
+- **Three BP registers must be set explicitly — all are pixel-discard traps at hardware reset:**
+  - BP 0x40 (ZMODE) reset = 0 → Z-compare function defaults may reject all pixels.
+  - BP 0x41 (BLENDMODE) reset = 0 → `colorupdate=0` → PE discards all pixels silently.
+  - BP 0xF3 (ALPHA_COMPARE) reset = 0 → `comp0=NEVER` → alpha test rejects all pixels.
+  Any one of these being wrong will produce a completely black EFB with no visible error.
+- `pos=320` is not a reliable change indicator for small FIFO additions: due to 32-byte alignment padding, adding 5 or 10 bytes of BP commands can leave `pos` unchanged at 320.
