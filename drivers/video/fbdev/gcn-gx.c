@@ -934,10 +934,12 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	if (phase == 360)
 		gx_log_next_submit = true;
 	/*
-	 * DIAGNOSTIC: skip EFB->XFB copy to isolate whether the copy/PE backend
-	 * is what eventually backs up the GP.  If frames continue to drain without
-	 * first_stall, the draw path is viable and the bug is in copy/sync state.
+	 * DIAGNOSTIC: re-enable EFB->XFB copy (adds BP 0x65 draw-done fence).
+	 * Hypothesis: without BP 0x65 queued after the draw, the PE never fires
+	 * PEFinish and CmdIdle (SR bit 3) stays 0 indefinitely.  EFB will be
+	 * black (no texture fetch here), but pipeline drain should be clean.
 	 */
+	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
 	gx_submit_cmds();
 
 	/* Diagnostic: log tex and XFB content for frames 0-3 and at color start */
