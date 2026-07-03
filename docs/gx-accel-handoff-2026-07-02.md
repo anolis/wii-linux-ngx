@@ -403,7 +403,33 @@ gx_load_bp_reg(0x250003C0);  /* stage 0: texmap=0, texcoord=0, texenable=1 */
 The same pass also fixed the TEV alpha input constant from `0xC108FFD0` to
 `0xC108FFC0`: libogc defines `GX_CA_TEXA = 4`, not 5.
 
-**Expected result for build `b1c85bf6`**: At frame 360 (`t ≈ 15s`), `xfb0` should be a non-black YUYV value (approximately `0x515A51F0` for solid red under BT.601).  The display should visibly cycle red → green → blue over ~18 seconds from boot.
+Boot result after this fix was still black at frame 360:
+
+```text
+gcn-gx: f360 tex0=f800f800 xfb0=00800080 xfb1=00800080
+```
+
+### 15. Current diagnostic: solid raster-colour quad, no texture
+
+The next diagnostic build changes only the frame 360-899 colour-cycle window.
+Instead of sampling `gx_tex_buf`, it now draws a fullscreen quad with direct
+RGBA vertex colours and TEV `GX_PASSCLR`:
+
+- `genMode`: 0 texgens, 1 colour channel, 1 TEV stage.
+- TEV order BP `0x25`: texture disabled, colour channel `GX_COLOR0A0`.
+- TEV colour/alpha: pass raster colour/alpha.
+- VCD/VAT: direct XY position plus direct RGBA8 colour.
+
+Expected interpretation:
+
+- If frame 360 XFB becomes non-black, vertex/raster/PE/copy work and the
+  remaining bug is texture or textured-TEV state.
+- If frame 360 stays `0x00800080`, the failure is not texture fetch; continue
+  looking at vertex/raster/PE state or EFB state.
+
+**Expected result for the current diagnostic build**: At frame 360 (`t ≈ 15s`),
+`xfb0` should be a non-black YUYV value if raster-colour drawing reaches EFB.
+The display should visibly cycle red → green → blue over ~18 seconds from boot.
 
 ## CP status register (SR) field meanings
 

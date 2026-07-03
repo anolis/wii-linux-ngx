@@ -499,6 +499,72 @@ static void gx_setup_2d_state(u16 width, u16 height)
 }
 
 /*
+ * gx_setup_solid_color_state - configure GX for a fullscreen raster-colour
+ * diagnostic draw.  This intentionally bypasses texture fetch and texture
+ * coordinate generation so we can isolate vertex/raster/PE state from TMU
+ * state.
+ */
+static void gx_setup_solid_color_state(u16 width, u16 height)
+{
+	u32 xo, yo;
+
+	gx_load_bp_reg(0x40000000);	/* Z disabled */
+	gx_load_bp_reg(0x41000018);	/* colour/alpha update enabled */
+	gx_load_bp_reg(0xF33F0000);	/* alpha test always passes */
+
+	/* genMode: 0 texgens, 1 colour channel, 1 TEV stage */
+	gx_load_bp_reg(0x00000010);
+
+	xo = 0x156;
+	yo = 0x156;
+	gx_load_bp_reg(0x20000000 | ((xo & 0x7ff) << 12) | (yo & 0x7ff));
+	gx_load_bp_reg(0x21000000 |
+		       (((xo + width  - 1) & 0x7ff) << 12) |
+		       ((yo + height - 1) & 0xfff));
+
+	/* TEV stage 0: GX_PASSCLR, output raster colour/alpha. */
+	gx_load_bp_reg(0xC008000A);
+	gx_load_bp_reg(0xC1080050);
+
+	/* TEV order stage 0: no texture, colour channel GX_COLOR0A0. */
+	gx_load_bp_reg(0x25000000);
+
+	/* XF: one colour channel, no lighting, material source = vertex. */
+	gx_load_xf_reg(0x1009, 1);
+	gx_load_xf_reg(0x100e, 0x00000401);
+	gx_load_xf_reg(0x1010, 0x00000401);
+
+	/* No texture coordinate generators. */
+	gx_load_xf_reg(0x103f, 0);
+
+	gx_load_xf_regs_n(0x101a, 6);
+	wg_f32_bits(f32_from_u16(width >> 1));
+	wg_f32_bits(F32_NEG(f32_from_u16(height >> 1)));
+	wg_f32_bits(F32_16M);
+	wg_f32_bits(f32_from_u16((width >> 1) + 342));
+	wg_f32_bits(f32_from_u16((height >> 1) + 342));
+	wg_f32_bits(F32_16M);
+
+	gx_load_xf_regs_n(0x1020, 7);
+	wg_f32_bits(f32_div_u16(2, width));
+	wg_f32_bits(F32_NEG_ONE);
+	wg_f32_bits(F32_NEG(f32_div_u16(2, height)));
+	wg_f32_bits(F32_ONE);
+	wg_f32_bits(F32_NEG_ONE);
+	wg_f32_bits(F32_ZERO);
+	gx_wr32be(1);
+
+	/* VCD: direct XY position + direct colour0, no texcoords. */
+	gx_load_cp_reg(0x50, 0x2200);
+	gx_load_cp_reg(0x60, 0x0000);
+
+	/* VAT0: pos XY F32, colour0 RGBA8. */
+	gx_load_cp_reg(0x70, 0x40016008);
+	gx_load_cp_reg(0x80, 0x80000000);
+	gx_load_cp_reg(0x90, 0x00000000);
+}
+
+/*
  * gx_setup_texture_rgb565 - bind a tiled RGB565 buffer to texmap 0.
  *
  * Writes 8 BP registers. Values derived from libogc GX_InitTexObj /
@@ -581,6 +647,27 @@ static void gx_draw_fullscreen_quad(u16 width, u16 height)
 	/* bottom-left */
 	wg_f32_bits(F32_ZERO); wg_f32_bits(fh);
 	wg_f32_bits(F32_ZERO); wg_f32_bits(fh);
+}
+
+static void gx_draw_solid_quad(u16 width, u16 height, u32 rgba)
+{
+	u32 fw = f32_from_u16(width);
+	u32 fh = f32_from_u16(height);
+
+	gx_wr8(0x80);			/* GX_QUADS | vtxfmt 0 */
+	gx_wr16be(4);
+
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
+	gx_wr32be(rgba);
+
+	wg_f32_bits(fw);       wg_f32_bits(F32_ZERO);
+	gx_wr32be(rgba);
+
+	wg_f32_bits(fw);       wg_f32_bits(fh);
+	gx_wr32be(rgba);
+
+	wg_f32_bits(F32_ZERO); wg_f32_bits(fh);
+	gx_wr32be(rgba);
 }
 
 /* ------------------------------------------------------------------ */
@@ -723,6 +810,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 
 	if (phase >= 360 && phase < 900) {
 		static const u16 colors[3] = {0xF800, 0x07E0, 0x001F}; /* R G B */
+		static const u32 rgba[3] = {0xFF0000FF, 0x00FF00FF, 0x0000FFFF};
 		u16 c = colors[(phase - 360) / 180];
 		u32 fill = ((u32)c << 16) | c;
 		u32 *p = (u32 *)gx_tex_buf;
@@ -730,17 +818,24 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 
 		while (n--)
 			*p++ = fill;
+
+		flush_dcache_range((unsigned long)gx_tex_buf,
+				   (unsigned long)gx_tex_buf +
+				   (unsigned long)width * height * 2);
+
+		gx_setup_solid_color_state(width, height);
+		gx_draw_solid_quad(width, height, rgba[(phase - 360) / 180]);
 	} else {
 		gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
+
+		flush_dcache_range((unsigned long)gx_tex_buf,
+				   (unsigned long)gx_tex_buf +
+				   (unsigned long)width * height * 2);
+
+		gx_setup_2d_state(width, height);
+		gx_setup_texture_rgb565(gx_tex_buf, width, height);
+		gx_draw_fullscreen_quad(width, height);
 	}
-
-	flush_dcache_range((unsigned long)gx_tex_buf,
-			   (unsigned long)gx_tex_buf +
-			   (unsigned long)width * height * 2);
-
-	gx_setup_2d_state(width, height);
-	gx_setup_texture_rgb565(gx_tex_buf, width, height);
-	gx_draw_fullscreen_quad(width, height);
 	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
 	gx_submit_cmds();
 
