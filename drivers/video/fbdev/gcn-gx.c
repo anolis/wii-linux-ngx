@@ -61,6 +61,7 @@ static void *gx_fifo_buf;
 /* Texture tile buffer: virtual FB converted to GX 4×4 tiled format */
 static void *gx_tex_raw;
 static void *gx_tex_buf;
+static bool gx_log_next_submit;
 
 /* Set to true after successful gcn_gx_init(); guards vsync path */
 bool gx_accel_ready;
@@ -207,6 +208,21 @@ static u32 f32_div_u16(u16 num, u16 den)
 	else
 		mant = (u32)((q << (23 - msb)) & 0x7FFFFF);
 	return ((u32)exp << 23) | mant;
+}
+
+static void gx_load_identity_pos_mtx0(void)
+{
+	/* GX_LoadPosMtxImm(identity, GX_PNMTX0) */
+	gx_load_xf_regs_n(0x0000, 12);
+	wg_f32_bits(F32_ONE);  wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ONE);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ONE);  wg_f32_bits(F32_ZERO);
+
+	/* GX_SetCurrentMtx(GX_PNMTX0): XF 0x1018 = matrix index 0 */
+	gx_load_xf_reg(0x1018, 0);
 }
 
 /* gx_wait_idle - wait for the GP to finish processing the FIFO */
@@ -453,6 +469,8 @@ static void gx_setup_2d_state(u16 width, u16 height)
 	 */
 	gx_load_xf_reg(0x1050, 0x3F);
 
+	gx_load_identity_pos_mtx0();
+
 	/* ---- XF 0x101a-0x101f: viewport ----
 	 * GX_SetViewport(0, 0, w, h, 0, 1):
 	 *   x0=w/2, y0=-h/2, z=16777215, x1=w/2+342, y1=h/2+342, f=16777215
@@ -536,6 +554,8 @@ static void gx_setup_solid_color_state(u16 width, u16 height)
 
 	/* No texture coordinate generators. */
 	gx_load_xf_reg(0x103f, 0);
+
+	gx_load_identity_pos_mtx0();
 
 	gx_load_xf_regs_n(0x101a, 6);
 	wg_f32_bits(f32_from_u16(width >> 1));
@@ -736,6 +756,7 @@ EXPORT_SYMBOL_GPL(gcn_gx_copy_efb_to_xfb);
 static void gx_submit_cmds(void)
 {
 	static int frame_log;	/* log frames 0-3 in detail */
+	bool do_log = frame_log < 4 || gx_log_next_submit;
 	u32 phys_start = (u32)virt_to_phys(gx_fifo_buf);
 	u32 phys_end   = phys_start + GX_FIFO_SIZE - 4;
 	u32 phys_wt;
@@ -766,9 +787,10 @@ static void gx_submit_cmds(void)
 	pi_write(PI_REG_FIFO_WPTR, phys_wt);
 	pi_write(PI_REG_FIFO_CTRL, PI_FIFO_CTRL_EN);
 
-	if (frame_log < 4)
+	if (do_log)
 		pr_info("gcn-gx: f%d pre: SR=%04x RD=%04x WT=%04x pos=%u\n",
-			frame_log, cp_read(CP_REG_STATUS),
+			gx_log_next_submit ? 360 : frame_log,
+			cp_read(CP_REG_STATUS),
 			0, phys_wt - phys_start, fifo_pos);
 
 	out_be16(pe_regs + PE_REG_CTRL_STAT, 0x0003);
@@ -777,15 +799,19 @@ static void gx_submit_cmds(void)
 	udelay(2000);
 
 	/* Read back RD after delay: confirms GP consumed commands */
-	if (frame_log < 4) {
+	if (do_log) {
 		cp_rd = ((u32)cp_read(CP_REG_RD_HI) << 16) |
 			cp_read(CP_REG_RD_LO);
 		cp_wt = ((u32)cp_read(CP_REG_WT_HI) << 16) |
 			cp_read(CP_REG_WT_LO);
 		pr_info("gcn-gx: f%d post: SR=%04x RDoff=%04x WToff=%04x\n",
-			frame_log, cp_read(CP_REG_STATUS),
+			gx_log_next_submit ? 360 : frame_log,
+			cp_read(CP_REG_STATUS),
 			cp_rd - phys_start, cp_wt - phys_start);
-		frame_log++;
+		if (gx_log_next_submit)
+			gx_log_next_submit = false;
+		else
+			frame_log++;
 	}
 
 	cp_write(CP_REG_CTRL, 0);
@@ -836,6 +862,8 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		gx_setup_texture_rgb565(gx_tex_buf, width, height);
 		gx_draw_fullscreen_quad(width, height);
 	}
+	if (phase == 360)
+		gx_log_next_submit = true;
 	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
 	gx_submit_cmds();
 

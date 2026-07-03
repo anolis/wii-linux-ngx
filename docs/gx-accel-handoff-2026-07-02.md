@@ -427,9 +427,28 @@ Expected interpretation:
 - If frame 360 stays `0x00800080`, the failure is not texture fetch; continue
   looking at vertex/raster/PE state or EFB state.
 
+Boot result: frame 360 still stayed black:
+
+```text
+gcn-gx: f360 tex0=f800f800 xfb0=00800080 xfb1=00800080
+```
+
+### 16. Current diagnostic: explicitly load PNMTX0 identity/current matrix
+
+The next diagnostic keeps the solid raster-colour quad, but adds the missing
+position matrix state that libogc initializes during `GX_Init()`:
+
+- `GX_LoadPosMtxImm(identity, GX_PNMTX0)`: XF regs `0x0000..0x000b`.
+- `GX_SetCurrentMtx(GX_PNMTX0)`: XF reg `0x1018 = 0`.
+
+This is important because the projection matrix is not the whole transform.
+Vertices are first multiplied by the current position matrix; if PNMTX0 contains
+reset garbage, the quad can be clipped before rasterization.  Frame 360 now also
+logs submit pre/post so we can verify this larger diagnostic FIFO is consumed.
+
 **Expected result for the current diagnostic build**: At frame 360 (`t ≈ 15s`),
-`xfb0` should be a non-black YUYV value if raster-colour drawing reaches EFB.
-The display should visibly cycle red → green → blue over ~18 seconds from boot.
+`xfb0` should become non-black if missing PNMTX0/current-matrix state was why
+the primitive never reached raster/PE.
 
 ## CP status register (SR) field meanings
 
