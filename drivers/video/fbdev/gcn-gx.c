@@ -546,8 +546,12 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0x41000018);	/* colour/alpha update enabled */
 	gx_load_bp_reg(0xF33F0000);	/* alpha test always passes */
 
-	/* genMode: 1 texgen, 0 colour channels, 1 TEV stage */
-	gx_load_bp_reg(0x00000001);
+	/*
+	 * DIAGNOSTIC: numtexcoordgens=0, numcolchans=0, numtevstages=1.
+	 * Strips texcoord from GENMODE while keeping TEV stage active.
+	 * Pair with VCD pos-only and gx_draw_pos_quad below.
+	 */
+	gx_load_bp_reg(0x00000000);
 
 	xo = 0x156;
 	yo = 0x156;
@@ -608,10 +612,10 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0x30000000 | (u32)(width  - 1));
 	gx_load_bp_reg(0x31000000 | (u32)(height - 1));
 
-	/* VCD/VAT: direct XY position plus direct TEX0, but TEV texture disabled. */
+	/* VCD/VAT: pos-only (no TEX0) — pair with gx_draw_pos_quad. */
 	gx_load_cp_reg(0x50, 0x200);
-	gx_load_cp_reg(0x60, 0x001);
-	gx_load_cp_reg(0x70, 0x41200008);
+	gx_load_cp_reg(0x60, 0x000);
+	gx_load_cp_reg(0x70, 0x00000008);	/* pos XY F32 only */
 	gx_load_cp_reg(0x80, 0x80000000);
 	gx_load_cp_reg(0x90, 0x00000000);
 }
@@ -933,20 +937,14 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_current_frame = phase;
 
 	/*
-	 * DIAGNOSTIC: include direct TEX0 vertex data and texcoord generation,
-	 * but leave TEV texture fetch disabled.  This isolates CP/VAT TEX0 parsing
-	 * from TMU texture reads.
+	 * DIAGNOSTIC: pos-only vertices + TEV still active (raschan=7, CC_ZERO).
+	 * GENMODE numtexcoordgens=0, VCD no TEX0.  Tests whether the stall lives
+	 * in the TEV stage config rather than the texcoord vertex/GENMODE path.
 	 */
 	gx_setup_texcoord_parse_state(width, height);
-	gx_draw_fullscreen_quad(width, height);
+	gx_draw_pos_quad(width, height);
 	if (phase == 360)
 		gx_log_next_submit = true;
-	/*
-	 * DIAGNOSTIC: scissor is 4×4 (see gx_setup_texcoord_parse_state).
-	 * BP 0x65 confirmed NOT sufficient to fix SR=0x0004 stall; now testing
-	 * whether stall is proportional to pixel count.  EFB copy reads full
-	 * width×height but only 16 pixels were rendered — rest is zero/black.
-	 */
 	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
 	gx_submit_cmds();
 
