@@ -848,6 +848,24 @@ static void gx_submit_cmds(void)
 	}
 
 	cp_write(CP_REG_CTRL, 0);
+
+	/*
+	 * Poll for GP command-idle (SR bit 3 = 0x0008) before returning.
+	 * The rasterizer/TEV/PE backend keeps running after the CP stops
+	 * reading the FIFO.  Without this wait, reprogramming CP BASE/END/
+	 * RD/WT for the next frame races the still-active downstream pipeline,
+	 * leaving SR=0x0000 at the next pre-log and causing the CP to never
+	 * start reading (RDoff=0x0000).  Observed after ~16 TEX0 frames.
+	 */
+	{
+		int t = 2000;
+
+		while (t-- && !(cp_read(CP_REG_STATUS) & 0x0008))
+			udelay(10);
+		if (!(cp_read(CP_REG_STATUS) & 0x0008))
+			pr_warn_once("gcn-gx: pipeline did not go idle after submit (SR=0x%04x)\n",
+				     cp_read(CP_REG_STATUS));
+	}
 }
 
 /*
