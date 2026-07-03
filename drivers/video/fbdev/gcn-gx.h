@@ -52,8 +52,9 @@
 #define CP_CR_WRINT_EN		BIT(3)	/* FIFO overflow interrupt */
 #define CP_CR_LINKEN		BIT(4)	/* link CPU/GP FIFOs */
 
-/* PE register indices (16-bit) */
-#define PE_REG_DONE		5	/* PE done token */
+/* PE register indices (16-bit, word-indexed from PE base 0x0C001000) */
+#define PE_REG_DONE		5	/* byte offset 0x0A: bit 1 = FINISH */
+#define PE_FINISH_BIT		0x0002	/* set when BP 0x45=2 draw-done token is retired */
 
 /* BP command opcode — written to wgPipe before a 32-bit BP register value */
 #define GX_CMD_LOAD_BP_REG	0x61

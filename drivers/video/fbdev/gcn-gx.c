@@ -582,6 +582,14 @@ void gcn_gx_copy_efb_to_xfb(u32 xfb_phys, u16 width, u16 height)
 	       (GX_GM_1_0 << COPY_CTRL_GAMMA_SHIFT) |
 	       COPY_CTRL_EXECUTE;
 	gx_load_bp_reg(ctrl);
+
+	/*
+	 * BP 0x45 = 2: draw-done token.  The PE queues this behind all
+	 * preceding pixel operations (draw + copy).  When the PE sets bit 1
+	 * of its finish register, the EFB→XFB copy is guaranteed complete.
+	 * gx_submit_cmds polls that bit instead of using a blind udelay.
+	 */
+	gx_load_bp_reg(0x45000002);
 }
 EXPORT_SYMBOL_GPL(gcn_gx_copy_efb_to_xfb);
 
@@ -672,6 +680,12 @@ static void gx_submit_cmds(void)
 	 * LINKEN together; GPRESET alone (bit 0) appears insufficient to start
 	 * the GP reading on this hardware.
 	 */
+	/*
+	 * Clear the PE FINISH bit before starting the GP so we do not
+	 * accidentally read a stale assertion from the previous frame.
+	 */
+	out_be16(pe_regs + PE_REG_DONE, 0);
+
 	cp_write(CP_REG_CTRL, CP_CR_GPRESET | CP_CR_LINKEN);
 	if (!logged_after_enable) {
 		udelay(1000);
@@ -685,14 +699,30 @@ static void gx_submit_cmds(void)
 			cp_wt - phys_start, pi_wptr - phys_start);
 		logged_after_enable = true;
 	}
+
 	/*
-	 * Fixed drain wait: at 288 bytes the GP finishes in < 1 ms.
-	 * Register polling (gx_wait_fifo_empty) timed out because with
-	 * LINKEN+PI_FIFO_CTRL_EN active the PI can advance CP_WT after the
-	 * GP drains, making RD==WT never true.  A 2 ms fixed delay is safe
-	 * at 60 Hz (16 ms budget) and avoids that coupling problem.
+	 * Wait for the PE to signal completion via the draw-done token
+	 * (BP 0x45 = 2, appended to the command stream in gcn_gx_copy_efb_to_xfb).
+	 *
+	 * The PE sets bit 1 of PE_REG_DONE only after all preceding pixel
+	 * operations — draw to EFB and EFB→XFB copy — are fully retired.
+	 * This replaces the old blind udelay(2000) which was insufficient for
+	 * the full render+copy pipeline and caused frame-rate alternation.
+	 *
+	 * 16 ms timeout = one full frame period; if we exceed that something
+	 * has gone seriously wrong.
 	 */
-	udelay(2000);
+	{
+		int t;
+
+		for (t = 0; t < 16000; t++) {
+			if (in_be16(pe_regs + PE_REG_DONE) & 0x0002)
+				break;
+			udelay(1);
+		}
+		if (t >= 16000)
+			pr_warn_once("gcn-gx: PE FINISH timeout (16 ms)\n");
+	}
 	cp_write(CP_REG_CTRL, 0);
 }
 
