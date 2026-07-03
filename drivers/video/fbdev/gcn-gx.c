@@ -377,6 +377,30 @@ static void gx_setup_2d_state(u16 width, u16 height)
 	 */
 	gx_load_bp_reg(0x40000000);
 
+	/* ---- BP 0x41: blendMode ----
+	 * Hardware reset value is 0x00: colorupdate=0, alphaupdate=0 — the PE
+	 * silently drops every rasterized pixel without writing the EFB.
+	 * bit[3] = colorupdate = 1, bit[4] = alphaupdate = 1, blend disabled.
+	 */
+	gx_load_bp_reg(0x41000018);
+
+	/* ---- BP 0xF3: alphaCompare ----
+	 * Hardware reset value is 0x00: comp0 = NEVER (0), comp1 = NEVER (0),
+	 * logic = AND (0).  NEVER AND NEVER = ALWAYS_FAIL — every rasterized
+	 * fragment is discarded by the alpha test before it can reach the PE,
+	 * making colorupdate meaningless.
+	 *
+	 * Bit layout (Dolphin BPMemory.h AlphaTest):
+	 *   [7:0]   ref0   = 0
+	 *   [15:8]  ref1   = 0
+	 *   [18:16] comp0  = 7 (GX_ALWAYS)
+	 *   [21:19] comp1  = 7 (GX_ALWAYS)
+	 *   [23:22] logic  = 0 (GX_AOP_AND)
+	 * 0xF33F0000 → ref0=0, ref1=0, comp0=ALWAYS, comp1=ALWAYS, logic=AND
+	 * Result: every fragment passes, no pixels are discarded.
+	 */
+	gx_load_bp_reg(0xF33F0000);
+
 	/* ---- BP 0x00: genMode ----
 	 * [2:0]   numtexgens = 1
 	 * [6:4]   numcolchans = 0
@@ -510,6 +534,17 @@ static void gx_setup_texture_rgb565(void *tile_buf, u16 width, u16 height)
 	/* BP 0x94 texImage3: physical address >> 5 */
 	gx_load_bp_reg(0x94000000 | ((phys >> 5) & 0x00ffffff));
 
+	/*
+	 * BP 0x66: texture cache invalidate (BPMEM_TX_INVALIDATE).
+	 * The TMU caches texture data fetched from main memory.  Without this,
+	 * the GP serves stale data on every frame after the first — the cache
+	 * holds the initial texture and ignores subsequent writes to the same
+	 * physical address even after a CPU dcache flush.  Sent twice as
+	 * libogc does (GX_InvalidateTexAll writes it twice for reliability).
+	 */
+	gx_load_bp_reg(0x66000000);
+	gx_load_bp_reg(0x66000000);
+
 	/* BP 0x30/0x31 suSsize/suTsize for texcoord 0:
 	 * [15:0] = texture dimension - 1 (normalises vertex UV to [0,1])
 	 * [16] = wrap = 0 (GX_CLAMP)
@@ -584,13 +619,11 @@ void gcn_gx_copy_efb_to_xfb(u32 xfb_phys, u16 width, u16 height)
 	gx_load_bp_reg(ctrl);
 
 	/*
-	 * BP 0x65 = 2: PE draw-done trigger (BPMEM_PE_DONE).
-	 * The PE queues this behind all preceding pixel operations (draw +
-	 * copy).  When the PE processes it, bit 1 of PE_CTRL_STAT (byte
-	 * offset 0x02 from PE base) goes high.  gx_submit_cmds polls that
-	 * bit so the DI1 handler never returns before the copy is complete.
-	 * (BP 0x45 is BPMEM_REVBITS — an unrelated register; writing there
-	 * does nothing useful for synchronisation.)
+	 * BP 0x65 = 2: PE draw-done trigger (BPMEM_PE_DONE / libogc GXSetDrawDone).
+	 * Queued behind the copy command; when the PE processes it the PE FINISH
+	 * signal fires.  On this hardware PE FINISH is interrupt-driven — the
+	 * status bit in PE_CTRL_STAT clears before software can poll it.
+	 * gx_submit_cmds therefore uses a fixed 2ms udelay rather than polling.
 	 */
 	gx_load_bp_reg(0x65000002);
 }
@@ -615,36 +648,19 @@ EXPORT_SYMBOL_GPL(gcn_gx_copy_efb_to_xfb);
  */
 static void gx_submit_cmds(void)
 {
-	static bool logged_submit;
-	static bool logged_after_enable;
+	static int frame_log;	/* log frames 0-3 in detail */
 	u32 phys_start = (u32)virt_to_phys(gx_fifo_buf);
 	u32 phys_end   = phys_start + GX_FIFO_SIZE - 4;
 	u32 phys_wt;
 	u32 cp_rd, cp_wt;
-	u32 pi_wptr;
 
 	/* Pad to 32-byte boundary (GP DMA requires 32-byte alignment) */
 	while (fifo_pos & 0x1f)
 		gx_wr8(0);
 	phys_wt = phys_start + fifo_pos;
-	if (!logged_submit) {
-		pr_info("gcn-gx: submit: base=0x%08x wt=0x%08x pos=%u SR=0x%04x\n",
-			phys_start, phys_wt, fifo_pos, cp_read(CP_REG_STATUS));
-		logged_submit = true;
-	}
 
-	/*
-	 * GP is already disabled from the udelay+cp_write(CTRL,0) at the end
-	 * of the previous frame's gx_submit_cmds.  Write CTRL=0 again to be
-	 * safe; no need to poll for idle.
-	 */
 	cp_write(CP_REG_CTRL, 0);
 
-	/*
-	 * Flush command buffer to physical RAM.  The setup/draw/copy functions
-	 * write GX commands into CPU cache; without this flush the GP's DMA
-	 * reads stale zeros from physical RAM.
-	 */
 	flush_dcache_range((unsigned long)gx_fifo_buf,
 			   (unsigned long)gx_fifo_buf + fifo_pos);
 
@@ -658,86 +674,66 @@ static void gx_submit_cmds(void)
 	cp_write(CP_REG_WT_HI, phys_wt >> 16);
 	cp_write(CP_REG_WT_LO, phys_wt & 0xffff);
 
-	/*
-	 * Mirror WT into the PI side.  With LINKEN=1, CP_WT and PI_FIFO_WPTR
-	 * are coupled.  Set PI_FIFO_WPTR = phys_wt BEFORE enabling LINKEN so
-	 * the link doesn't pull CP_WT back to mini's stale PI_FIFO_WPTR (0).
-	 */
 	pi_write(PI_REG_FIFO_BASE, phys_start & ~0x1fu);
 	pi_write(PI_REG_FIFO_END,  phys_end   & ~0x1fu);
 	pi_write(PI_REG_FIFO_WPTR, phys_wt);
 	pi_write(PI_REG_FIFO_CTRL, PI_FIFO_CTRL_EN);
-	if (!logged_after_enable) {
-		cp_rd = ((u32)cp_read(CP_REG_RD_HI) << 16) |
-			cp_read(CP_REG_RD_LO);
-		cp_wt = ((u32)cp_read(CP_REG_WT_HI) << 16) |
-			cp_read(CP_REG_WT_LO);
-		pi_wptr = pi_read(PI_REG_FIFO_WPTR);
-		pr_info("gcn-gx: preGP: RDoff=0x%04x WToff=0x%04x PIoff=0x%04x pos=%u\n",
-			cp_rd - phys_start, cp_wt - phys_start,
-			pi_wptr - phys_start, fifo_pos);
-	}
 
-	/*
-	 * Enable GP with FIFO link.  libogc always enables both GPRESET and
-	 * LINKEN together; GPRESET alone (bit 0) appears insufficient to start
-	 * the GP reading on this hardware.
-	 */
-	/*
-	 * Clear the PE FINISH bit before starting the GP so we do not
-	 * accidentally read a stale assertion from the previous frame.
-	 */
-	out_be16(pe_regs + PE_REG_DONE, 0);
+	if (frame_log < 4)
+		pr_info("gcn-gx: f%d pre: SR=%04x RD=%04x WT=%04x pos=%u\n",
+			frame_log, cp_read(CP_REG_STATUS),
+			0, phys_wt - phys_start, fifo_pos);
 
+	out_be16(pe_regs + PE_REG_CTRL_STAT, 0x0003);
 	cp_write(CP_REG_CTRL, CP_CR_GPRESET | CP_CR_LINKEN);
-	if (!logged_after_enable) {
-		udelay(1000);
+
+	udelay(2000);
+
+	/* Read back RD after delay: confirms GP consumed commands */
+	if (frame_log < 4) {
 		cp_rd = ((u32)cp_read(CP_REG_RD_HI) << 16) |
 			cp_read(CP_REG_RD_LO);
 		cp_wt = ((u32)cp_read(CP_REG_WT_HI) << 16) |
 			cp_read(CP_REG_WT_LO);
-		pi_wptr = pi_read(PI_REG_FIFO_WPTR);
-		pr_info("gcn-gx: postGP: SR=0x%04x RDoff=0x%04x WToff=0x%04x PIoff=0x%04x\n",
-			cp_read(CP_REG_STATUS), cp_rd - phys_start,
-			cp_wt - phys_start, pi_wptr - phys_start);
-		logged_after_enable = true;
+		pr_info("gcn-gx: f%d post: SR=%04x RDoff=%04x WToff=%04x\n",
+			frame_log, cp_read(CP_REG_STATUS),
+			cp_rd - phys_start, cp_wt - phys_start);
+		frame_log++;
 	}
 
-	/*
-	 * Wait for the PE to signal completion via the draw-done token
-	 * (BP 0x45 = 2, appended to the command stream in gcn_gx_copy_efb_to_xfb).
-	 *
-	 * The PE sets bit 1 of PE_REG_DONE only after all preceding pixel
-	 * operations — draw to EFB and EFB→XFB copy — are fully retired.
-	 * This replaces the old blind udelay(2000) which was insufficient for
-	 * the full render+copy pipeline and caused frame-rate alternation.
-	 *
-	 * 16 ms timeout = one full frame period; if we exceed that something
-	 * has gone seriously wrong.
-	 */
-	{
-		int t;
-
-		for (t = 0; t < 16000; t++) {
-			if (in_be16(pe_regs + PE_REG_DONE) & 0x0002)
-				break;
-			udelay(1);
-		}
-		if (t >= 16000)
-			pr_warn_once("gcn-gx: PE FINISH timeout (16 ms)\n");
-	}
 	cp_write(CP_REG_CTRL, 0);
 }
 
 /*
  * gcn_gx_blit_fb_rgb565 - blit a linear RGB565 virtual FB to the XFB.
  * Full pipeline: tile → bind texture → draw to EFB → EFB-to-XFB copy.
+ *
+ * Frames 0-359 (~6s): normal rendering from vfb_mem (terminal content).
+ * Frames 360-539 (~3s): solid red   — visual confirm GX rendering works.
+ * Frames 540-719 (~3s): solid green
+ * Frames 720-899 (~3s): solid blue
+ * Frames 900+: back to normal.
  */
 void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
+	static u32 frame_count;
+	u32 phase = frame_count++;
+
 	fifo_pos = 0;
 
-	gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
+	if (phase >= 360 && phase < 900) {
+		static const u16 colors[3] = {0xF800, 0x07E0, 0x001F}; /* R G B */
+		u16 c = colors[(phase - 360) / 180];
+		u32 fill = ((u32)c << 16) | c;
+		u32 *p = (u32 *)gx_tex_buf;
+		u32 n = ((u32)width * height) / 2;
+
+		while (n--)
+			*p++ = fill;
+	} else {
+		gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
+	}
+
 	flush_dcache_range((unsigned long)gx_tex_buf,
 			   (unsigned long)gx_tex_buf +
 			   (unsigned long)width * height * 2);
@@ -747,6 +743,15 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_draw_fullscreen_quad(width, height);
 	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
 	gx_submit_cmds();
+
+	/* Diagnostic: log tex and XFB content for frames 0-3 and at color start */
+	if (phase < 4 || phase == 360) {
+		const u32 *xv = (const u32 *)__va(xfb_phys);
+		pr_info("gcn-gx: f%u tex0=%08x xfb0=%08x xfb1=%08x\n",
+			phase,
+			*(const u32 *)gx_tex_buf,
+			xv[0], xv[1]);
+	}
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
 

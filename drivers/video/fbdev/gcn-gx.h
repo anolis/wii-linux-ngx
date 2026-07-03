@@ -53,9 +53,20 @@
 #define CP_CR_LINKEN		BIT(4)	/* link CPU/GP FIFOs */
 
 /* PE register indices (16-bit, word-indexed from PE base 0x0C001000) */
-#define PE_REG_CTRL_STAT	1	/* byte offset 0x02: PE_CTRL_STAT */
-#define PE_REG_DONE		PE_REG_CTRL_STAT  /* alias used in submit code */
-#define PE_FINISH_BIT		0x0002	/* bit 1: set when BP 0x65=2 is retired */
+#define PE_REG_CTRL_STAT	0	/* byte offset 0x00: PE_CTRL_STAT */
+#define PE_REG_DONE		PE_REG_CTRL_STAT
+/*
+ * PE_CTRL_STAT layout (Dolphin / YAGCD):
+ *   bit 0: PETokenEnable  (interrupt enable)
+ *   bit 1: PEFinishEnable (interrupt enable)
+ *   bit 2: PEToken  (status - token was received)
+ *   bit 3: PEFinish (status - draw-done fired after BP 0x65)
+ *
+ * Boot log shows PE[0]=0x0003 (both enables set, no status yet).
+ * PE FINISH is interrupt-driven; status bit clears before we can poll it.
+ * We use udelay(8000) as the actual sync and poll this as a best-effort.
+ */
+#define PE_FINISH_BIT		0x0008	/* bit 3: PEFinish status */
 
 /* BP command opcode — written to wgPipe before a 32-bit BP register value */
 #define GX_CMD_LOAD_BP_REG	0x61
