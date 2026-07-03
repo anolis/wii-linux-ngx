@@ -556,10 +556,16 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 		       (((xo + width  - 1) & 0x7ff) << 12) |
 		       ((yo + height - 1) & 0xfff));
 
-	/* TEV stage 0: output zero colour/alpha, no texture input. */
+	/* TEV stage 0: output zero colour/alpha, no texture input.
+	 * raschan=7 (GX_COLOR_NULL, bits[9:7]=0b111 → 0x380): with numcolchans=0
+	 * there is no raster colour token in the pipeline; raschan=0 (GX_COLOR0A0)
+	 * causes the TEV to wait forever for a colour that never arrives, stalling
+	 * the entire backend from frame 2 onwards (SR stays 0x0004).
+	 * texenable=0 (bit[6]=0): no TMU fetch.  raschan=7 + texenable=0 = 0x380.
+	 */
 	gx_load_bp_reg(0xC008FFFF);
 	gx_load_bp_reg(0xC108FFF0);
-	gx_load_bp_reg(0x25000000);
+	gx_load_bp_reg(0x25000380);
 
 	gx_load_xf_reg(0x103f, 1);
 	gx_load_xf_reg(0x1040, 0x201);	/* MTX2x4, src=TEX0: (4<<7)|1 */
