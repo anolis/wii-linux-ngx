@@ -584,12 +584,15 @@ void gcn_gx_copy_efb_to_xfb(u32 xfb_phys, u16 width, u16 height)
 	gx_load_bp_reg(ctrl);
 
 	/*
-	 * BP 0x45 = 2: draw-done token.  The PE queues this behind all
-	 * preceding pixel operations (draw + copy).  When the PE sets bit 1
-	 * of its finish register, the EFB→XFB copy is guaranteed complete.
-	 * gx_submit_cmds polls that bit instead of using a blind udelay.
+	 * BP 0x65 = 2: PE draw-done trigger (BPMEM_PE_DONE).
+	 * The PE queues this behind all preceding pixel operations (draw +
+	 * copy).  When the PE processes it, bit 1 of PE_CTRL_STAT (byte
+	 * offset 0x02 from PE base) goes high.  gx_submit_cmds polls that
+	 * bit so the DI1 handler never returns before the copy is complete.
+	 * (BP 0x45 is BPMEM_REVBITS — an unrelated register; writing there
+	 * does nothing useful for synchronisation.)
 	 */
-	gx_load_bp_reg(0x45000002);
+	gx_load_bp_reg(0x65000002);
 }
 EXPORT_SYMBOL_GPL(gcn_gx_copy_efb_to_xfb);
 

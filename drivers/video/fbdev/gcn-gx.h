@@ -53,8 +53,9 @@
 #define CP_CR_LINKEN		BIT(4)	/* link CPU/GP FIFOs */
 
 /* PE register indices (16-bit, word-indexed from PE base 0x0C001000) */
-#define PE_REG_DONE		5	/* byte offset 0x0A: bit 1 = FINISH */
-#define PE_FINISH_BIT		0x0002	/* set when BP 0x45=2 draw-done token is retired */
+#define PE_REG_CTRL_STAT	1	/* byte offset 0x02: PE_CTRL_STAT */
+#define PE_REG_DONE		PE_REG_CTRL_STAT  /* alias used in submit code */
+#define PE_FINISH_BIT		0x0002	/* bit 1: set when BP 0x65=2 is retired */
 
 /* BP command opcode — written to wgPipe before a 32-bit BP register value */
 #define GX_CMD_LOAD_BP_REG	0x61
