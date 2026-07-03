@@ -571,8 +571,8 @@ void gcn_gx_copy_efb_to_xfb(u32 xfb_phys, u16 width, u16 height)
 		       (((u32)(height - 1) & 0x3ff) << 10) |
 		       ((u32)(width  - 1) & 0x3ff));
 
-	/* BP 0x4d: dest stride in units of 16 bytes (YUYV: 2 bytes/pixel) */
-	gx_load_bp_reg((BP_DISP_COPY_DST << 24) | ((width * 2) >> 4));
+	/* BP 0x4d: dest stride in units of 32 bytes (one cache line) */
+	gx_load_bp_reg((BP_DISP_COPY_DST << 24) | ((width * 2) >> 5));
 
 	/* BP 0x4b: dest physical address (right-shifted 5) */
 	gx_load_bp_reg((BP_DISP_COPY_ADDR << 24) | ((xfb_phys >> 5) & 0xffffff));
@@ -622,13 +622,10 @@ static void gx_submit_cmds(void)
 		logged_submit = true;
 	}
 
-	/* Wait for the previous FIFO to drain before reprogramming pointers. */
-	gx_wait_idle();
-
 	/*
-	 * Disable GP before touching registers.  This prevents a race where
-	 * the GP (still enabled from the previous frame) re-reads stale data
-	 * if we change RD while old WT > new RD.
+	 * GP is already disabled from the udelay+cp_write(CTRL,0) at the end
+	 * of the previous frame's gx_submit_cmds.  Write CTRL=0 again to be
+	 * safe; no need to poll for idle.
 	 */
 	cp_write(CP_REG_CTRL, 0);
 
@@ -688,7 +685,14 @@ static void gx_submit_cmds(void)
 			cp_wt - phys_start, pi_wptr - phys_start);
 		logged_after_enable = true;
 	}
-	gx_wait_fifo_empty();
+	/*
+	 * Fixed drain wait: at 288 bytes the GP finishes in < 1 ms.
+	 * Register polling (gx_wait_fifo_empty) timed out because with
+	 * LINKEN+PI_FIFO_CTRL_EN active the PI can advance CP_WT after the
+	 * GP drains, making RD==WT never true.  A 2 ms fixed delay is safe
+	 * at 60 Hz (16 ms budget) and avoids that coupling problem.
+	 */
+	udelay(2000);
 	cp_write(CP_REG_CTRL, 0);
 }
 
@@ -698,17 +702,41 @@ static void gx_submit_cmds(void)
  */
 void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
+	u32 ctrl;
+
+	/*
+	 * DIAGNOSTIC: EFB clear-to-red + copy only.  No texture pipeline.
+	 *
+	 * BP 0xE0/0xE1 set the EFB hardware clear colour (A=FF R=FF G=00 B=00
+	 * = bright red).  COPY_CTRL_CLEAR makes the EFB→XFB copy fill the XFB
+	 * with the clear colour converted to YUYV instead of rendering pixels.
+	 *
+	 * If the display flashes red even briefly, the EFB→XFB copy path is
+	 * working end-to-end and we can restore the full texture pipeline.
+	 * If the display never changes, the copy itself or its address/timing
+	 * is wrong.
+	 */
 	fifo_pos = 0;
 
-	gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
-	flush_dcache_range((unsigned long)gx_tex_buf,
-			   (unsigned long)gx_tex_buf +
-			   (unsigned long)width * height * 2);
+	/* Clear colour: A=0xFF, R=0xFF, G=0x00, B=0x00 (bright red) */
+	gx_load_bp_reg(0xE000FFFF);	/* BP 0xE0: [15:8]=A [7:0]=R */
+	gx_load_bp_reg(0xE1000000);	/* BP 0xE1: [15:8]=G [7:0]=B */
 
-	gx_setup_2d_state(width, height);
-	gx_setup_texture_rgb565(gx_tex_buf, width, height);
-	gx_draw_fullscreen_quad(width, height);
-	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
+	/* EFB copy source covers the full framebuffer */
+	gx_load_bp_reg((BP_DISP_COPY_TL << 24) | 0);
+	gx_load_bp_reg((BP_DISP_COPY_WH << 24) |
+		       (((u32)(height - 1) & 0x3ff) << 10) |
+		       ((u32)(width  - 1) & 0x3ff));
+	gx_load_bp_reg((BP_DISP_COPY_DST << 24) | ((width * 2) >> 5));
+	gx_load_bp_reg((BP_DISP_COPY_ADDR << 24) | ((xfb_phys >> 5) & 0xffffff));
+
+	/* Execute copy with CLEAR: fills EFB then XFB with red clear colour */
+	ctrl = (BP_DISP_COPY_CTRL << 24) |
+	       (GX_GM_1_0 << COPY_CTRL_GAMMA_SHIFT) |
+	       COPY_CTRL_CLEAR |
+	       COPY_CTRL_EXECUTE;
+	gx_load_bp_reg(ctrl);
+
 	gx_submit_cmds();
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
