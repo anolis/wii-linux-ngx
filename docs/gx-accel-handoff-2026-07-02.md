@@ -20,11 +20,11 @@ Branch: `feature/gcn-gx-accel`
 Latest commits (most recent first):
 
 ```text
-(pending) Fix EFB→XFB copy stride: >> 5 not >> 4 (32-byte cache line units)
-(pending) Replace blit with EFB clear diagnostic; fix submit drain timing
+37328d48c240 Move tex_buf to MEM1; restore full pipeline; diagnose COPY_CTRL_CLEAR
+78d43025d4e0 Update GX handoff: vertical bars diagnosis, stride fix, next steps
+2ed459a6c78f Diagnose vertical-bars output; fix stride, drain wait, diagnostic blit
 69027724c2c6 Document Wii GX acceleration handoff
 a06c3538569e Stop GX CP after submitted FIFO drains
-86ca3d80c91a Wait for GX FIFO before stopping GP
 ...
 ```
 
@@ -235,73 +235,72 @@ After the endian fix, observed values and their meanings:
 | `0x0004` | GP enabled + running (commands in flight) |
 | `0x0000` | Transitional / uncertain |
 
-## Current diagnostic path
+### 9. COPY_CTRL_CLEAR is clear-AFTER-copy, not clear-before (★ session 2)
 
-`gcn_gx_blit_fb_rgb565()` is temporarily a minimal diagnostic:
+After the stride fix, the display showed **RGB pixel noise** (random coloured pixels, full screen) instead of solid red.
+
+This confirmed that:
+- The stride fix worked — GP is now writing all 480 lines of the XFB (full-screen noise vs. the earlier half-screen alternating bands).
+- `COPY_CTRL_CLEAR` (BP 0x52 bit 11) does **NOT** fill the EFB with the clear colour and then copy it.  It copies the current EFB contents **first**, then fills the EFB with the clear colour for the next frame.
+
+Mini leaves the EFB in an uninitialised state.  Each frame the GP copies that random content to the XFB (noise), then clears the EFB to our red colour — which is then copied as noise again next frame by the same mechanism.
+
+`COPY_CTRL_CLEAR` is a "prepare EFB for next frame" operation, not a "fill XFB with colour" operation.  The only way to get controlled content into the XFB is to **draw into the EFB** via the GX rendering pipeline first, then do a plain copy without `CLEAR`.
+
+### 10. gx_tex_buf must be in MEM1 (★ session 2)
+
+The GX texture fetch unit is GameCube-era hardware.  GameCube has only MEM1 (physical 0x00000000–0x01800000).  The Wii adds MEM2 (physical 0x10000000–0x14000000), but the GX hardware predates it and **cannot generate MEM2 bus addresses** for texture fetches.
+
+`kmalloc(GX_TEX_BUF_SIZE, GFP_KERNEL)` returned a MEM2 virtual address on Wii Linux (~`0xC2900000` → physical ~`0x12900000`) because MEM1 and MEM2 are coalesced into a single logical range.  `GFP_DMA` did not help.
+
+When `gx_setup_texture_rgb565` programmed BP 0x94 with `(phys >> 5)` for a MEM2 address, the texture unit fetched from the wrong bus, producing garbage in the EFB.
+
+Fix (now applied):
+
+```dts
+/memreserve/ 0x01200000 0x000C0000; /* GX texture tile buffer 768 KB */
+```
+
+```c
+#define GX_TEX_BUF_MEM1_PHYS  0x01200000
+gx_tex_buf = (void *)__va(GX_TEX_BUF_MEM1_PHYS);
+```
+
+Physical `0x01200000` is safely in MEM1.  `phys >> 5 = 0x90000` (no bit-23 issue).  The DTS reserve prevents the allocator from handing this range to other users.
+
+## Current pipeline state
+
+`gcn_gx_blit_fb_rgb565()` has the full texture pipeline restored:
 
 ```c
 fifo_pos = 0;
-gx_load_bp_reg(0xE000FFFF);   /* BP 0xE0: A=FF R=FF */
-gx_load_bp_reg(0xE1000000);   /* BP 0xE1: G=00 B=00 */
-gx_load_bp_reg((BP_DISP_COPY_TL  << 24) | 0);
-gx_load_bp_reg((BP_DISP_COPY_WH  << 24) | ((height-1) << 10) | (width-1));
-gx_load_bp_reg((BP_DISP_COPY_DST << 24) | ((width * 2) >> 5));   /* 32-byte units */
-gx_load_bp_reg((BP_DISP_COPY_ADDR<< 24) | ((xfb_phys >> 5) & 0xffffff));
-ctrl = (BP_DISP_COPY_CTRL << 24) | COPY_CTRL_CLEAR | COPY_CTRL_EXECUTE;
-gx_load_bp_reg(ctrl);
+gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
+flush_dcache_range((unsigned long)gx_tex_buf,
+                   (unsigned long)gx_tex_buf + width * height * 2);
+gx_setup_2d_state(width, height);
+gx_setup_texture_rgb565(gx_tex_buf, width, height);
+gx_draw_fullscreen_quad(width, height);
+gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);   /* no CLEAR */
 gx_submit_cmds();
 ```
 
-The full texture pipeline (`gx_tile_rgb565` → texture bind → draw quad → copy) is commented out pending confirmation of solid-red output.
-
-## Pending known issue: gx_tex_buf in MEM2
-
-`gx_tex_buf` is allocated via `kmalloc`, which returns a MEM2 address (~`0x12900000`).  The GX texture unit stores texture addresses as `phys >> 5`.  This value may have bit 23 set, which the hardware truncates — the same bug as the original FIFO MEM2 issue.
-
-When the texture pipeline is restored this must be tested.  If texture fetch is broken, move `gx_tex_buf` to a reserved MEM1 region (similar to the FIFO).
+`gcnfb.c` still runs `vi_transcode_RGB565` unconditionally as a safety net.  The GX blit runs after it each frame and overwrites the XFB if GX output is correct.
 
 ## Suggested next steps
 
-1. **Boot-test the stride fix.**  Insert SD card, boot, observe display.
-   - Expected: solid red (or a strong solid colour) instead of vertical bars.
-   - If solid red → EFB→XFB copy path is fully verified, move to step 2.
-   - If still bars but different pattern → check BP 0xE0/0xE1 clear colour format.
-   - If display unchanged → check gx_submit_cmds is actually running (SR log).
+1. **Boot-test the restored pipeline.**  Observe the display.
+   - Expected: framebuffer content (text, console output) rendered by GX hardware, identical to the software-transcoded image but produced by the GP.
+   - If correct content appears → GX acceleration is working; move to cleanup.
+   - If garbage / wrong colours appear → tiling or texture/TEV setup is wrong; see below.
+   - If display shows the SW transcode output unchanged (no GX visible) → GP is running but EFB copy goes somewhere wrong; re-check `gx_fb_start` address.
 
-2. **Restore the full texture pipeline in `gcn_gx_blit_fb_rgb565`.**
+2. **If the image is wrong colour or distorted**, check the tiling with a single-frame dump:
+   - Add a `pr_info` with the first few bytes of `gx_tex_buf` after `gx_tile_rgb565`.
+   - Compare against the expected tiled layout for the known on-screen colours.
 
-   ```c
-   fifo_pos = 0;
-   gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
-   flush_dcache_range((unsigned long)gx_tex_buf,
-                      (unsigned long)gx_tex_buf + (unsigned long)width * height * 2);
-   gx_setup_2d_state(width, height);
-   gx_setup_texture_rgb565(gx_tex_buf, width, height);
-   gx_draw_fullscreen_quad(width, height);
-   gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
-   gx_submit_cmds();
-   ```
+3. **Remove the SW transcode safety net** once GX output is visually correct.  Change `gcnfb.c` RGB565 path to GX-only.
 
-3. **Verify texture output.**  With the SW transcode still running as a safety net, the GX output overwrites it each frame.  Look for the framebuffer contents (text / console output) rendered by GX.  If the display shows correct content → success.
-
-4. **If texture fetch fails**, allocate `gx_tex_buf` from a reserved MEM1 region:
-
-   ```dts
-   /memreserve/ 0x01694000 0x0020000; /* GX texture tile buffer ~128 KB */
-   ```
-
-   and in driver:
-
-   ```c
-   #define GX_TEX_BUF_MEM1_PHYS  0x01694000
-   gx_tex_buf = (void *)__va(GX_TEX_BUF_MEM1_PHYS);
-   ```
-
-   (Adjust DTS reserve to not conflict with existing `0x01694000` save-area reserve — that is only 16 KB; a 128 KB tex buf would need `0x016B4000` or similar.)
-
-5. **Remove the SW transcode safety net** once GX output is visually correct.
-
-6. **Clean up**: remove diagnostic `pr_info` calls in `gx_submit_cmds`, remove `panic=10` and `init=/bin/sh` from bootargs, remove `COPY_CTRL_CLEAR` diagnostic and restore normal copy.
+4. **Clean up**: remove diagnostic `pr_info` calls in `gx_submit_cmds`, remove `panic=10` and `init=/bin/sh` from bootargs once stable.
 
 ## Known pitfalls
 
@@ -309,7 +308,9 @@ When the texture pipeline is restored this must be tested.  If texture fetch is 
 - Do not remove `flush_dcache_range()` for the command FIFO — GP DMA reads physical memory.
 - Do not revert CP accessors to generic `ioread16/iowrite16`; this breaks pointer programming.
 - Do not leave `CP_CR_LINKEN` enabled between frames.
-- `GFP_DMA` does not force MEM1 on this platform.
+- `GFP_DMA` does not force MEM1 on this platform (MEM1 and MEM2 are coalesced).
 - BP `0x4D` dispCopyDst is in **32-byte** units — `(width * 2) >> 5`, not `>> 4`.
 - CP FIFO address registers drop bit 23 of physical addresses — MEM2 addresses fail silently.
 - Do not trust CP status bits alone as an idle condition; `RD == WT` is more reliable.
+- `COPY_CTRL_CLEAR` (BP 0x52 bit 11) clears the EFB **after** the copy, not before.  It does not fill the XFB with the clear colour.  Use the rendering pipeline to populate the EFB.
+- The GX texture fetch unit cannot access MEM2 (0x10000000+).  `gx_tex_buf` and any other GPU-visible buffer must be in MEM1 via `/memreserve/` + `__va(phys)`.
