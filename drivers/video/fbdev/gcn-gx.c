@@ -552,15 +552,9 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	xo = 0x156;
 	yo = 0x156;
 	gx_load_bp_reg(0x20000000 | ((xo & 0x7ff) << 12) | (yo & 0x7ff));
-	/*
-	 * DIAGNOSTIC: restrict scissor to 4×4 pixels (16 total) to test whether
-	 * the SR=0x0004 CmdIdle stall is proportional to pixel count.
-	 * If SR=000c with 4×4 but SR=0004 with 576×432, the bottleneck is PE
-	 * write throughput or EFB tile-cache eviction, not a TEV config issue.
-	 */
 	gx_load_bp_reg(0x21000000 |
-		       (((xo + 4  - 1) & 0x7ff) << 12) |
-		       ((yo + 4 - 1) & 0xfff));
+		       (((xo + width  - 1) & 0x7ff) << 12) |
+		       ((yo + height - 1) & 0xfff));
 
 	/* TEV stage 0: output zero colour/alpha, no texture input.
 	 * raschan=7 (GX_COLOR_NULL, bits[9:7]=0b111 → 0x380): with numcolchans=0
@@ -573,7 +567,15 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0xC108FFF0);
 	gx_load_bp_reg(0x25000380);
 
-	gx_load_xf_reg(0x103f, 1);
+	/*
+	 * DIAGNOSTIC: set numtexcoordgens=0 to disable XF texgen output while
+	 * keeping GENMODE numtexcoordgens=1, VCD TEX0=DIRECT, and vertex data
+	 * unchanged.  CP still reads TEX0 bytes; XF receives but does not emit
+	 * texcoords.  Tests whether the XF texgen unit itself is the stall source.
+	 * If SR=000c: the XF texgen output path stalls the rasterizer.
+	 * If SR=0004: the stall is elsewhere (TEV setup, GENMODE mismatch, etc.).
+	 */
+	gx_load_xf_reg(0x103f, 0);
 	gx_load_xf_reg(0x1040, 0x201);	/* MTX2x4, src=TEX0: (4<<7)|1 */
 	gx_load_xf_reg(0x1050, 0x3F);
 	gx_load_identity_pos_mtx0();
