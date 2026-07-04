@@ -708,6 +708,30 @@ The "exactly frame 2" pattern suggests a hardware state that accumulates over 2 
 Degenerate texcoords (all=(0,0)) did not fix it, so non-zero gradient/LOD derivative
 math is not sufficient to explain the stall.
 
+### 18. Vertex-colour raster path still consumes FIFO but does not update EFB
+
+The vertex-colour diagnostic drains cleanly, but the XFB samples remain stale and the
+display shows the old vertical bars/noise:
+
+- f0/f1/f2/f3 and f360 all report `RDoff == WToff == 0x01a0`
+- `vcol` cycles to blue at f360
+- XFB samples stay at the same mini/noise values after f1
+
+This means CP/FIFO command consumption is not the problem for this test.  The remaining
+failure is between primitive setup and EFB colour writes: viewport/projection/clip,
+colour-channel state, raster state, or PE/EFB write masks.
+
+Current test after this note: explicitly program libogc-style field state in
+`gx_setup_vertex_color_state()`:
+
+```c
+gx_load_bp_reg(0x44000003); /* GX_SetFieldMask(GX_TRUE, GX_TRUE) */
+gx_load_bp_reg(0x68000000); /* GX_SetFieldMode(GX_FALSE, GX_FALSE) */
+```
+
+Hypothesis: copy-clear can update/clear EFB while ordinary raster writes may be blocked
+if mini left one or both field masks disabled.
+
 ---
 
 ## Known pitfalls

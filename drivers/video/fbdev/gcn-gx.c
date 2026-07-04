@@ -586,6 +586,8 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0x40000000);	/* Z disabled */
 	gx_load_bp_reg(0x41000018);	/* colour/alpha update enabled */
 	gx_load_bp_reg(0x43000040);	/* RGB8/Z24 EFB, linear Z, zcomp before tex */
+	gx_load_bp_reg(0x44000003);	/* GX_SetFieldMask(GX_TRUE, GX_TRUE) */
+	gx_load_bp_reg(0x68000000);	/* GX_SetFieldMode(GX_FALSE, GX_FALSE) */
 	gx_load_bp_reg(0xF33F0000);	/* alpha test always passes */
 
 	/* genMode: 1 texgen, 0 colour channels, 1 TEV stage */
@@ -662,6 +664,8 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_bp_reg(0x40000000);	/* Z disabled */
 	gx_load_bp_reg(0x41000018);	/* colour/alpha update enabled */
 	gx_load_bp_reg(0x43000040);	/* RGB8/Z24 EFB, linear Z, zcomp before tex */
+	gx_load_bp_reg(0x44000003);	/* GX_SetFieldMask(GX_TRUE, GX_TRUE) */
+	gx_load_bp_reg(0x68000000);	/* GX_SetFieldMode(GX_FALSE, GX_FALSE) */
 	gx_load_bp_reg(0xF33F0000);	/* alpha test always passes */
 
 	/* genMode: 0 texgens, 1 colour channel, 1 TEV stage */
