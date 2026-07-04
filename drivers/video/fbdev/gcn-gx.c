@@ -700,16 +700,28 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	 * encodes attn_fn=GX_AF_SPEC (specular) instead of GX_AF_NONE — an
 	 * invalid attenuation mode for a plain vertex-colour passthrough.
 	 */
+	/*
+	 * DIAGNOSTIC: the previous test (chan-ctrl + clip fixes) made the
+	 * primitive visibly write the EFB, but the output colour is black
+	 * instead of the vertex colour.  To isolate whether the bug is in
+	 * vertex CLR0 attribute parsing versus the colour-channel/TEV/PE
+	 * pipeline downstream, switch matsrc from GX_SRC_VTX to GX_SRC_REG
+	 * and drive channel 0 from a hardcoded bright-red XF 0x100c
+	 * material-colour register instead of the per-vertex attribute
+	 * (vertex payload is still sent but now ignored).
+	 *
+	 * libogc GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG,
+	 * GX_SRC_REG, GX_LIGHTNULL, GX_DF_NONE, GX_AF_NONE) encoding:
+	 *   bit0  matsrc = 0 (GX_SRC_REG)
+	 *   bit10 "attn_fn>0" = 1 (GX_AF_NONE)
+	 * → 0x400.
+	 */
 	gx_load_xf_reg(0x1008, 0x00000001);
 	gx_load_xf_reg(0x1009, 0x00000001);
-	gx_load_xf_reg(0x100e, 0x00000401);
-	gx_load_xf_reg(0x1010, 0x00000401);
-	/*
-	 * GX_SetClipMode(GX_CLIP_ENABLE): libogc writes XF 0x1005 = mode&1
-	 * directly, and GX_CLIP_ENABLE is defined as 0 (GX_CLIP_DISABLE=1).
-	 * The previous write of 1 here actually selected GX_CLIP_DISABLE.
-	 */
-	gx_load_xf_reg(0x1005, 0);
+	gx_load_xf_reg(0x100e, 0x00000400);
+	gx_load_xf_reg(0x1010, 0x00000400);
+	gx_load_xf_reg(0x100c, 0xFF0000FF);	/* GX_SetChanMatColor(COLOR0A0, red) */
+	gx_load_xf_reg(0x1005, 0);	/* GX_SetClipMode(GX_CLIP_ENABLE) */
 	gx_load_xf_reg(0x103f, 0);
 
 	gx_load_identity_pos_mtx0();

@@ -849,6 +849,10 @@ sent in the FIFO but now ignored by the channel unit).
   colour-update masks, dst alpha, or an register we haven't cross-checked
   yet).
 
+Deployed image `f319d2350945c5f8939a60c446533fae16420769eefca051d2a23c07c60a4074`
+contains the `matsrc=GX_SRC_REG` + hardcoded red XF 0x100c isolation test
+(chan-ctrl and clip fixes both still in place). Awaiting hardware result.
+
 ---
 
 ## Known pitfalls
