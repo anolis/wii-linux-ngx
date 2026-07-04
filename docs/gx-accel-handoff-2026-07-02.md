@@ -749,6 +749,23 @@ vertex-colour draw, then run the ordinary non-clear display copy.  Expected outc
 - vertical bars/noise: clear-before-draw ordering is not working or the clear did not run
   in this combined command stream
 
+Result: black.  Fresh dmesg:
+
+- command stream grew to `pos=480`
+- f0/f1/f2/f3/f360 all drained (`RDoff == WToff == 0x01e0`)
+- XFB samples became stable video black (`10801080 127f107f`)
+
+This proves the pre-clear executes inside the combined command stream and the final
+display copy sees the cleared EFB.  The vertex-colour primitive still does not visibly
+modify EFB.  One ambiguity remains: the primitive could be drawing black because the
+raster colour/TEV/channel state is wrong, or it could be drawing no fragments.
+
+Next test: pre-clear EFB to green, then draw the same vertex-colour quad:
+
+- red/green/blue: vertex colour path works
+- green: primitive produces no visible EFB writes
+- black: primitive writes pixels, but colour/TEV state outputs black
+
 ---
 
 ## Known pitfalls
