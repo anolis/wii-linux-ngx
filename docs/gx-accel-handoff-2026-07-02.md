@@ -456,6 +456,17 @@ Deployed image `8cae3eb7abd85699b1149ce98886fa263f098454883cad650e444183b70a0fff
 contains the explicit BP `0x43000040` PE-control write.  Awaiting hardware
 result.
 
+Hardware result was still the same vertical stripes/noise.  The log still
+showed FIFO drain and unchanged XFB samples.  Next diagnostic bypasses texture
+fetch and drawing entirely: it programs `GX_SetCopyClear`-style BP `0x4F/0x50/
+0x51` solid red/green/blue colours and calls display-copy with `clear=1`.  If
+EFB->XFB copy is actually writing the XFB, the display should become a solid
+colour by the second frame.  If it remains striped, focus on copy destination,
+copy control, or XFB/VI memory format rather than texture or raster state.
+
+Deployed image `6311481a4c33228e84a95b8a26349ffc90990fbad1e40593d64522dfae75e4ab`
+contains the copy-clear diagnostic.  Awaiting hardware result.
+
 ### Step 2: Expand to full texcoord path
 
 Once SR=000c with XF=1 + any working texcoord config:

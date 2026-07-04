@@ -770,6 +770,14 @@ static void gx_draw_pos_quad(u16 width, u16 height)
 /* EFB -> XFB display copy                                             */
 /* ------------------------------------------------------------------ */
 
+static void gx_set_copy_clear_rgb(u8 r, u8 g, u8 b)
+{
+	/* GX_SetCopyClear({r,g,b,255}, 0x00ffffff) */
+	gx_load_bp_reg(0x4F000000 | (0xff << 8) | r);
+	gx_load_bp_reg(0x50000000 | ((u32)g << 8) | b);
+	gx_load_bp_reg(0x51000000 | 0x00ffffff);
+}
+
 /*
  * gcn_gx_copy_efb_to_xfb - trigger hardware EFB->XFB blit.
  *
@@ -777,9 +785,19 @@ static void gx_draw_pos_quad(u16 width, u16 height)
  * YUYV, and writes into the XFB for the VI to scan out.  Replaces
  * vi_transcode_RGB565 / vi_transcode_RGB888 when gx_accel_ready is set.
  */
-void gcn_gx_copy_efb_to_xfb(u32 xfb_phys, u16 width, u16 height)
+static void gx_copy_efb_to_xfb(u32 xfb_phys, u16 width, u16 height, bool clear)
 {
 	u32 ctrl;
+
+	if (clear) {
+		/*
+		 * Match libogc GX_CopyDisp(clear=GX_TRUE): temporarily force
+		 * Z/colour modes that allow the copy-clear operation, then set
+		 * the clear bit in copy control.
+		 */
+		gx_load_bp_reg(0x4000000F);
+		gx_load_bp_reg(0x41000018);
+	}
 
 	/* BP 0x49: copy source top-left = (0, 0) */
 	gx_load_bp_reg((BP_DISP_COPY_TL << 24) | 0);
@@ -795,9 +813,10 @@ void gcn_gx_copy_efb_to_xfb(u32 xfb_phys, u16 width, u16 height)
 	/* BP 0x4b: dest physical address (right-shifted 5) */
 	gx_load_bp_reg((BP_DISP_COPY_ADDR << 24) | ((xfb_phys >> 5) & 0xffffff));
 
-	/* BP 0x52: copy control — gamma 1.0, no clear, execute */
+	/* BP 0x52: copy control — gamma 1.0, optional clear, execute */
 	ctrl = (BP_DISP_COPY_CTRL << 24) |
 	       (GX_GM_1_0 << COPY_CTRL_GAMMA_SHIFT) |
+	       (clear ? COPY_CTRL_CLEAR : 0) |
 	       COPY_CTRL_EXECUTE;
 	gx_load_bp_reg(ctrl);
 
@@ -809,6 +828,11 @@ void gcn_gx_copy_efb_to_xfb(u32 xfb_phys, u16 width, u16 height)
 	 * gx_submit_cmds therefore uses a fixed 2ms udelay rather than polling.
 	 */
 	gx_load_bp_reg(0x65000002);
+}
+
+void gcn_gx_copy_efb_to_xfb(u32 xfb_phys, u16 width, u16 height)
+{
+	gx_copy_efb_to_xfb(xfb_phys, width, height, false);
 }
 EXPORT_SYMBOL_GPL(gcn_gx_copy_efb_to_xfb);
 
@@ -979,41 +1003,33 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
 	static u32 frame_count;
 	u32 phase = frame_count++;
-	static const u16 colors[3] = { 0xF800, 0x07E0, 0x001F };
-	u16 c = colors[(phase / 180) % 3];
-	u32 fill = ((u32)c << 16) | c;
-	u32 *p = (u32 *)gx_tex_buf;
-	u32 n = ((u32)width * height) / 2;
+	static const u8 colors[3][3] = {
+		{ 0xff, 0x00, 0x00 },
+		{ 0x00, 0xff, 0x00 },
+		{ 0x00, 0x00, 0xff },
+	};
+	const u8 *c = colors[(phase / 180) % 3];
 
 	fifo_pos = 0;
 	gx_current_frame = phase;
 
-	while (n--)
-		*p++ = fill;
-
-	flush_dcache_range((unsigned long)gx_tex_buf,
-			   (unsigned long)gx_tex_buf +
-			   (unsigned long)width * height * 2);
-
 	/*
-	 * DIAGNOSTIC: full texture fetch without direct TEX0 attributes.  Texture
-	 * coordinates are generated from XY position through TEXMTX0.
+	 * DIAGNOSTIC: bypass texture fetch and drawing.  Display-copy with
+	 * clear=1 should copy the previous EFB contents into XFB and then clear
+	 * EFB to this solid RGB colour.  By the second frame the VI should show
+	 * the clear colour if the EFB->XFB copy path is actually writing XFB.
 	 */
-	gx_setup_texcoord_parse_state(width, height);
-	gx_setup_texture_rgb565(gx_tex_buf, width, height);
-	gx_draw_pos_quad(width, height);
+	gx_set_copy_clear_rgb(c[0], c[1], c[2]);
 	if (phase == 360)
 		gx_log_next_submit = true;
-	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
+	gx_copy_efb_to_xfb(xfb_phys, width, height, true);
 	gx_submit_cmds();
 
 	/* Diagnostic: log tex and XFB content for frames 0-3 and at color start */
 	if (phase < 4 || phase == 360) {
 		const u32 *xv = (const u32 *)__va(xfb_phys);
-		pr_info("gcn-gx: f%u tex0=%08x xfb0=%08x xfb1=%08x\n",
-			phase,
-			*(const u32 *)gx_tex_buf,
-			xv[0], xv[1]);
+		pr_info("gcn-gx: f%u clear=%02x%02x%02x xfb0=%08x xfb1=%08x\n",
+			phase, c[0], c[1], c[2], xv[0], xv[1]);
 	}
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
