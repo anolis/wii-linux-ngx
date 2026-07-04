@@ -851,7 +851,42 @@ sent in the FIFO but now ignored by the channel unit).
 
 Deployed image `f319d2350945c5f8939a60c446533fae16420769eefca051d2a23c07c60a4074`
 contains the `matsrc=GX_SRC_REG` + hardcoded red XF 0x100c isolation test
-(chan-ctrl and clip fixes both still in place). Awaiting hardware result.
+(chan-ctrl and clip fixes both still in place).
+
+Result: **green**, not solid red or black.  Fresh dmesg showed the XFB
+corner readback (`xfb0=90369122 xfb1=90369022`) exactly matching the very
+first green-preclear test byte-for-byte — the clean, uniform "no visible
+writes" signature — unlike the previous (`matsrc=GX_SRC_VTX`) test, whose
+corner readback was non-uniform (`b52e8675`/`c749e386`).
+
+Interpretation: switching the material-colour source from `GX_SRC_VTX` to
+`GX_SRC_REG` did not just change the output colour — it reverted the
+primitive to producing **zero visible fragment writes**, the same
+"no-op" failure mode as before the clip-polarity fix.  This is the
+opposite of the naive expectation (that matsrc only picks which colour
+value feeds the same downstream pipeline).  Net conclusion:
+`matsrc=GX_SRC_VTX` is the configuration that actually perturbs the EFB;
+`GX_SRC_REG` regresses to no-op.  Reverted back to `GX_SRC_VTX`
+(`0x401`, no XF 0x100c write) since it is the only configuration making
+observable progress.
+
+The real open question is now: how much of the screen does the "black"
+result actually cover, and is it truly `(0,0,0)` output or something else?
+The only hardware evidence so far is 2 corner pixels
+(`xfb[0]`/`xfb[1]`, i.e. the very first 2 pixels of row 0), which do not
+decode to black under either YUYV byte-order assumption (both give
+moderately bright, saturated colours) — yet the user's whole-screen visual
+report was "black".  This discrepancy is unresolved: either the corner
+pixels are a rendering artifact unrepresentative of the rest of the frame
+(e.g. a scissor/viewport boundary effect at exactly `(0,0)`), or the
+whole-screen black report is dominated by mostly-black content with a
+small bright corner the viewer didn't register.
+
+Added a third XFB sample point (`xfbc`, screen-centre pixel) to the
+`gcn_gx_blit_fb_rgb565` diagnostic `pr_info` so the next boot's dmesg
+directly shows whether the centre of the frame is black, coloured, or
+something else — resolving the ambiguity without guessing from the corner
+alone.
 
 ---
 

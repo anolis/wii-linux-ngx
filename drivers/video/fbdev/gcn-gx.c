@@ -701,26 +701,22 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	 * invalid attenuation mode for a plain vertex-colour passthrough.
 	 */
 	/*
-	 * DIAGNOSTIC: the previous test (chan-ctrl + clip fixes) made the
-	 * primitive visibly write the EFB, but the output colour is black
-	 * instead of the vertex colour.  To isolate whether the bug is in
-	 * vertex CLR0 attribute parsing versus the colour-channel/TEV/PE
-	 * pipeline downstream, switch matsrc from GX_SRC_VTX to GX_SRC_REG
-	 * and drive channel 0 from a hardcoded bright-red XF 0x100c
-	 * material-colour register instead of the per-vertex attribute
-	 * (vertex payload is still sent but now ignored).
-	 *
-	 * libogc GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG,
-	 * GX_SRC_REG, GX_LIGHTNULL, GX_DF_NONE, GX_AF_NONE) encoding:
-	 *   bit0  matsrc = 0 (GX_SRC_REG)
-	 *   bit10 "attn_fn>0" = 1 (GX_AF_NONE)
-	 * → 0x400.
+	 * DIAGNOSTIC RESULT: matsrc=GX_SRC_REG with a hardcoded XF 0x100c
+	 * material colour (previous test) reverted the screen to the clean,
+	 * uniform "no visible writes" green signature (xfb corner readback
+	 * identical to the very first green-preclear test).  That is the
+	 * opposite of matsrc=GX_SRC_VTX, which visibly disturbed the EFB
+	 * (non-uniform corner readback, reported as black on screen).
+	 * GX_SRC_VTX is therefore the configuration making actual progress;
+	 * reverted back to it here.  The remaining mystery is why the output
+	 * colour is wrong instead of the vertex RGBA colour — see the added
+	 * centre-pixel xfb sample below for more visibility into how much of
+	 * the screen is actually affected.
 	 */
 	gx_load_xf_reg(0x1008, 0x00000001);
 	gx_load_xf_reg(0x1009, 0x00000001);
-	gx_load_xf_reg(0x100e, 0x00000400);
-	gx_load_xf_reg(0x1010, 0x00000400);
-	gx_load_xf_reg(0x100c, 0xFF0000FF);	/* GX_SetChanMatColor(COLOR0A0, red) */
+	gx_load_xf_reg(0x100e, 0x00000401);
+	gx_load_xf_reg(0x1010, 0x00000401);
 	gx_load_xf_reg(0x1005, 0);	/* GX_SetClipMode(GX_CLIP_ENABLE) */
 	gx_load_xf_reg(0x103f, 0);
 
@@ -1149,8 +1145,10 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	/* Diagnostic: log tex and XFB content for frames 0-3 and at color start */
 	if (phase < 4 || phase == 360) {
 		const u32 *xv = (const u32 *)__va(xfb_phys);
-		pr_info("gcn-gx: f%u vcol=%02x%02x%02x xfb0=%08x xfb1=%08x\n",
-			phase, c[0], c[1], c[2], xv[0], xv[1]);
+		u32 center_off = (u32)(height / 2) * (width / 2) + (width / 4);
+
+		pr_info("gcn-gx: f%u vcol=%02x%02x%02x xfb0=%08x xfb1=%08x xfbc=%08x\n",
+			phase, c[0], c[1], c[2], xv[0], xv[1], xv[center_off]);
 	}
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
