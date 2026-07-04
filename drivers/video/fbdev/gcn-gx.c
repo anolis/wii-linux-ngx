@@ -673,6 +673,7 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_bp_reg(0x21000000 |
 		       (((xo + width  - 1) & 0x7ff) << 12) |
 		       ((yo + height - 1) & 0xfff));
+	gx_load_bp_reg(0x59000000);	/* GX_SetScissorBoxOffset(0, 0) */
 
 	/* TEV PASSCLR: output raster colour/alpha, no texture fetch. */
 	gx_load_bp_reg(0xC008FFFA);
@@ -684,6 +685,7 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_xf_reg(0x1009, 0x00000001);
 	gx_load_xf_reg(0x100e, 0x00000201);
 	gx_load_xf_reg(0x1010, 0x00000201);
+	gx_load_xf_reg(0x1005, 1);	/* GX_SetClipMode(GX_CLIP_ENABLE) */
 	gx_load_xf_reg(0x103f, 0);
 
 	gx_load_identity_pos_mtx0();

@@ -494,6 +494,17 @@ Deployed image `cd8ef02f159b6579785e07b1ac02eb8ca59201acfee9bed2ea896ef18c04238e
 contains the CP `0x30=0` matrix-index fix while keeping the vertex-colour
 raster diagnostic active.  Awaiting hardware result.
 
+Hardware result: still vertical bars/noise.  The rootfs log was unavailable
+when the SD came back, but the visible result means the CP current-matrix fix
+was not sufficient.  Next build keeps the vertex-colour raster diagnostic and
+adds two more libogc init states that affect raster visibility:
+`GX_SetScissorBoxOffset(0,0)` as BP `0x59000000` and
+`GX_SetClipMode(GX_CLIP_ENABLE)` as XF `0x1005=1`.
+
+Deployed image `6f8477b829ecbf0baa992c908146dc941fb9d27ff153c4a22a06310041c67574`
+contains those explicit clip/scissor state writes while keeping the
+vertex-colour raster diagnostic active.  Awaiting hardware result.
+
 ### Step 2: Expand to full texcoord path
 
 Once SR=000c with XF=1 + any working texcoord config:
