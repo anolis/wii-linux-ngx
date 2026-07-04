@@ -482,6 +482,18 @@ position transform, vertex/color channel state, or PE raster writes.
 Deployed image `6539a7899b263d47938348a28243cfe64974e6c01435f01f2ab722578fb31abe`
 contains the vertex-colour raster diagnostic.  Awaiting hardware result.
 
+Hardware result: vertical bars/noise returned.  Log showed FIFO drain
+(`RDoff=WToff=0x0180`) but XFB remained stale, so primitive commands are being
+consumed but no quad reaches EFB.  Comparison against libogc found that
+`GX_SetCurrentMtx(GX_PNMTX0)` writes both CP `0x30` and XF `0x1018`; our
+`gx_load_identity_pos_mtx0()` only wrote XF `0x1018`.  Next build writes
+CP `0x30=0` before XF `0x1018=0`, so position vertices should use PNMTX0
+instead of stale matrix-index state.
+
+Deployed image `cd8ef02f159b6579785e07b1ac02eb8ca59201acfee9bed2ea896ef18c04238e`
+contains the CP `0x30=0` matrix-index fix while keeping the vertex-colour
+raster diagnostic active.  Awaiting hardware result.
+
 ### Step 2: Expand to full texcoord path
 
 Once SR=000c with XF=1 + any working texcoord config:

@@ -222,7 +222,8 @@ static void gx_load_identity_pos_mtx0(void)
 	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
 	wg_f32_bits(F32_ONE);  wg_f32_bits(F32_ZERO);
 
-	/* GX_SetCurrentMtx(GX_PNMTX0): XF 0x1018 = matrix index 0 */
+	/* GX_SetCurrentMtx(GX_PNMTX0): libogc writes CP 0x30 and XF 0x1018. */
+	gx_load_cp_reg(0x30, 0);
 	gx_load_xf_reg(0x1018, 0);
 
 	/*
