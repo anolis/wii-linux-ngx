@@ -684,11 +684,26 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_bp_reg(0xC108FFD0);
 	gx_load_bp_reg(0x25000000);
 
-	/* XF: one colour channel, one direct colour, zero texcoords. */
+	/*
+	 * XF: one colour channel, one direct colour, zero texcoords.
+	 *
+	 * XF 0x100e/0x1010 (chan0 colour/alpha control): value derived from
+	 * libogc GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG,
+	 * GX_SRC_VTX, GX_LIGHTNULL, GX_DF_NONE, GX_AF_NONE) — the exact call
+	 * GX_Init() itself makes for color0 by default.  Encoding:
+	 *   bit0     matsrc   = 1 (GX_SRC_VTX)
+	 *   bit1     enable   = 0 (lighting disabled)
+	 *   bit6     ambsrc   = 0 (GX_SRC_REG, unused since lighting is off)
+	 *   bit9     "(GX_AF_NONE-attn_fn)>0" = 0
+	 *   bit10    "attn_fn>0"              = 1
+	 * → 0x401.  The previous value 0x201 has bit9=1/bit10=0, which
+	 * encodes attn_fn=GX_AF_SPEC (specular) instead of GX_AF_NONE — an
+	 * invalid attenuation mode for a plain vertex-colour passthrough.
+	 */
 	gx_load_xf_reg(0x1008, 0x00000001);
 	gx_load_xf_reg(0x1009, 0x00000001);
-	gx_load_xf_reg(0x100e, 0x00000201);
-	gx_load_xf_reg(0x1010, 0x00000201);
+	gx_load_xf_reg(0x100e, 0x00000401);
+	gx_load_xf_reg(0x1010, 0x00000401);
 	gx_load_xf_reg(0x1005, 1);	/* GX_SetClipMode(GX_CLIP_ENABLE) */
 	gx_load_xf_reg(0x103f, 0);
 

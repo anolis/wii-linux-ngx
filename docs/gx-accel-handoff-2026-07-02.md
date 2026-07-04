@@ -766,6 +766,89 @@ Next test: pre-clear EFB to green, then draw the same vertex-colour quad:
 - green: primitive produces no visible EFB writes
 - black: primitive writes pixels, but colour/TEV state outputs black
 
+Deployed image `9451ecf1105020d9efd42e20e5c0b88654ac5a8ca2b071c90028723124ded437`
+contains the green-preclear diagnostic (commit `550766c192b1`).
+
+Result: green.  Fresh dmesg confirmed a stable, uniform green XFB readback
+(`xfb0=90369122 xfb1=90369022`) identical at f0 (vcol=red) and f360
+(vcol=blue) — the vertex colour never showed up in the output, definitively
+proving the vertex-colour primitive produces **no visible EFB writes at all**
+(not "writes black"): the clear colour survives the primitive untouched.
+
+### 2026-07-04 session (picks up from the green-preclear result)
+
+Two register mismatches were found by cross-referencing the vertex-colour
+diagnostic against `/home/anolis/repos/libogc` `gx.c`/`gx.h` bit-for-bit,
+the same technique that resolved the earlier texture-path bugs:
+
+**Mismatch 1 — XF 0x100e/0x1010 (chan0 colour/alpha control) encoding.**
+libogc's `GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG, GX_SRC_VTX,
+GX_LIGHTNULL, GX_DF_NONE, GX_AF_NONE)` — the exact call `GX_Init()` makes
+for colour0 by default — computes register value `0x401`.  Our driver had
+`0x201`.  Decoding both: bit0 (matsrc=vertex) matches in both, but bits
+9:10 differ — `0x201` encodes `attn_fn=GX_AF_SPEC` (specular) while `0x401`
+correctly encodes `attn_fn=GX_AF_NONE`.  Fixed to `0x401` in isolation
+first (commit pending) to test whether this alone was the "no write" cause.
+
+Deployed image `6b332902ff63725f6b2544e8078f0b23096864317370ff5b29bab53839fabb39`
+contains only this chan-ctrl fix (clip register untouched, still the old
+value).
+
+Result: still green.  This mismatch was real (confirmed against libogc) but
+not sufficient by itself to produce visible EFB writes.
+
+**Mismatch 2 — XF 0x1005 GX_CLIP_ENABLE polarity is inverted.** libogc
+defines `GX_CLIP_ENABLE = 0` and `GX_CLIP_DISABLE = 1`;
+`GX_SetClipMode(mode)` writes `mode & 1` directly to XF 0x1005.  Our driver
+wrote `gx_load_xf_reg(0x1005, 1)` with a comment claiming this was
+`GX_CLIP_ENABLE` — it was actually `GX_CLIP_DISABLE`.  Fixed to write `0`.
+
+Deployed image `038b5a2ddee676d88db719ed6ab9ffe066c112cba2ef4eddd0060a3c9e364f5a`
+contains both the chan-ctrl fix and the clip-polarity fix.
+
+Result: **black**, not green — a real change in behaviour.  Fresh dmesg
+showed a stable but non-uniform XFB corner readback (`xfb0=b52e8675
+xfb1=c749e386`, unchanged between f0 (vcol=red) and f360 (vcol=blue)), i.e.
+still not tracking the vertex colour, but visually reported as black
+full-screen.  Per the green/black discriminator table above: this is the
+"black" bucket — **the primitive is now visibly writing to the EFB**
+(progress from the green "no writes" state), but the output colour is
+wrong (black) instead of the vertex RGBA colour.
+
+Interpretation: the clip-polarity bug was actually enabling
+`GX_CLIP_DISABLE` before the fix; something about the (previously
+uninvestigated) interaction between correct clipping and this pipeline
+state was masking the primitive's EFB writes entirely.  With clip now
+genuinely enabled, rasterization proceeds but colour output is black.
+
+Re-verified against libogc, bit-for-bit, with no discrepancies found in:
+VAT0 colour0 format (`0x40016008` = RGBA8 direct, correct), BP 0x25 TEV
+order (`rascolor=GX_COLOR0A0`→colid 0, correct), BP 0xC0/0xC1 TEV
+colour/alpha combiners (`PASSCLR` formula, byte-exact match), XF 0x1008
+VtxSpecs and XF 0x1009 SETNUMCHAN (byte-exact match), and genMode
+numcolchans/numtevstages fields.  libogc's own doc comment for
+`GX_SetChanCtrl` confirms: "When the channel enable is set to GX_FALSE,
+the material colour source ... is passed through as the channel's output
+colour" — so `matsrc=GX_SRC_VTX` with `enable=0` should pass the vertex
+colour through untouched, which every register we can compare against
+libogc says should work.
+
+Next test isolates vertex-attribute colour parsing from the
+channel/TEV/PE pipeline: switch `matsrc` from `GX_SRC_VTX` to `GX_SRC_REG`
+and drive channel 0 from a hardcoded bright-red XF 0x100c material-colour
+register instead of the per-vertex attribute (vertex payload is still
+sent in the FIFO but now ignored by the channel unit).
+
+- solid red: the channel/TEV/PE pipeline is fine; the bug is specifically
+  in vertex CLR0 attribute parsing (VCD/VAT/byte layout despite the
+  bit-exact match found above — possibly a CP-side parsing quirk not
+  visible from static register comparison).
+- still black: the bug is downstream of the material-colour source itself,
+  in the channel/TEV/PE path — despite every statically comparable register
+  matching libogc, so look at dynamic/hardware-specific state (PE
+  colour-update masks, dst alpha, or an register we haven't cross-checked
+  yet).
+
 ---
 
 ## Known pitfalls
