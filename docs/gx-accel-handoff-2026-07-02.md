@@ -282,7 +282,7 @@ SR=0004 at frame 2.  The next diagnostic should remove VCD TEX0 entirely and ask
 XF to generate texcoord 0 from position instead:
 
 - `XF 0x103F = 1`
-- `XF 0x1040 = 0x000` (`sourcerow=GX_TG_POS`, projection=0)
+- `XF 0x1040 = 0x004` (`sourcerow=GX_TG_POS`, `stq=1`, projection=0)
 - `VCD TEX0 = none`
 - `VAT = position-only`
 - `gx_draw_pos_quad()`
@@ -408,6 +408,33 @@ Current diagnostic state:
 - quad vertices are position-only
 - `gx_tex_buf` is filled with solid RGB565 red/green/blue cycling every 180 frames
 - TEV texture fetch enabled, texmap 0 bound, EFB->XFB copy enabled
+
+Boot result:
+
+```text
+f0 post:   SR=000c RDoff=01c0 WToff=01c0 tex0=f800f800
+f1 post:   SR=000c RDoff=01c0 WToff=01c0 tex0=f800f800
+f2 post:   SR=000c RDoff=01c0 WToff=01c0 tex0=f800f800
+f3 post:   SR=000c RDoff=01c0 WToff=01c0 tex0=f800f800
+f360 post: SR=000c RDoff=01c0 WToff=01c0 tex0=001f001f
+```
+
+Visual result: vertical stripes/noise.  No frame-2 stall.  `xfb0` remained near
+video black rather than the expected solid red/blue YUYV values, so the failure
+has moved to texture coordinate/object correctness.
+
+Comparison against local `/home/anolis/repos/libogc` found three mismatches in
+this test:
+
+- `GX_TG_POS` texgen uses `stq=1`, so `XF 0x1040` should be `0x004`, not `0x000`.
+- Selecting `GX_TEXMTX0` for texcoord0 requires matrix-index low bits
+  `GX_TEXMTX0 << 6` (`30 << 6`) written to CP `0x30` and XF `0x1018`.
+- Non-mipmap `GX_InitTexObj` default `texMode0` is `0x80`; the old `0x250` was
+  not libogc's default object state.
+
+Deployed follow-up build `e881d745b437ae72f9ec2c123abe4713a29020467946238fb7c83e08b4bfaa15`
+applies those three fixes while keeping the same position-generated
+texture-fetch diagnostic.  Awaiting hardware result.
 
 ### Step 2: Expand to full texcoord path
 

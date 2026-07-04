@@ -257,6 +257,15 @@ static void gx_load_pos_to_tex_mtx0(u16 width, u16 height)
 	wg_f32_bits(F32_ZERO);              wg_f32_bits(F32_ZERO);
 	wg_f32_bits(F32_ZERO);              wg_f32_bits(f32_div_u16(1, height));
 	wg_f32_bits(F32_ZERO);              wg_f32_bits(F32_ZERO);
+
+	/*
+	 * GX_SetTexCoordGen(..., GX_TEXMTX0) records GX_TEXMTX0 (30) in the
+	 * texcoord0 matrix-index field.  libogc writes this to both CP reg 0x30
+	 * and XF 0x1018.  Without this, texcoord0 uses matrix index 0 and ignores
+	 * TEXMTX0 entirely.
+	 */
+	gx_load_cp_reg(0x30, 30 << 6);
+	gx_load_xf_reg(0x1018, 30 << 6);
 }
 
 /* gx_wait_idle - wait for the GP to finish processing the FIFO */
@@ -595,7 +604,7 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	 * TEXMTX0 scales pixel XY into normalized ST for texture fetch.
 	 */
 	gx_load_xf_reg(0x103f, 1);
-	gx_load_xf_reg(0x1040, 0x000);
+	gx_load_xf_reg(0x1040, 0x004);
 	gx_load_xf_reg(0x1050, 0x3F);
 	gx_load_identity_pos_mtx0();
 	gx_load_pos_to_tex_mtx0(width, height);
@@ -647,10 +656,8 @@ static void gx_setup_texture_rgb565(void *tile_buf, u16 width, u16 height)
 	u32 phys = virt_to_phys(tile_buf);
 	u32 img0;
 
-	/* BP 0x80 texMode0: wrap=CLAMP(0), no-mipmap(0x80), min/mag=LINEAR(0x240)
-	 * Data 0x250 derived from libogc defaults for non-mipmapped texture.
-	 */
-	gx_load_bp_reg(0x80000250);
+	/* BP 0x80 texMode0: libogc GX_InitTexObj non-mipmap default. */
+	gx_load_bp_reg(0x80000080);
 
 	/* BP 0x84 texMode1: LOD disabled */
 	gx_load_bp_reg(0x84000000);
