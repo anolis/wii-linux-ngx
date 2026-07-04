@@ -888,6 +888,55 @@ directly shows whether the centre of the frame is black, coloured, or
 something else — resolving the ambiguity without guessing from the corner
 alone.
 
+Deployed image `4e269bd386e2146a8d8abd8c4dc8a4508af609b7d58703e796d30069b4e376a2`
+contains the reverted `matsrc=GX_SRC_VTX` config plus the new `xfbc`
+centre-pixel sample (no register-state changes versus the earlier "black"
+test, `b784b920565b`, other than the added log field).
+
+Result: **black** again (expected — no register changes).  Fresh dmesg:
+
+```
+f0   vcol=ff0000 xfb0=b1317972 xfb1=c352b786 xfbc=157d157d
+f360 vcol=0000ff xfb0=b1317972 xfb1=c352b786 xfbc=157d157d
+```
+
+`xfbc=157d157d` decodes (either YUYV byte order, since U≈V≈0x7d here) to
+roughly RGB(17,24,16) — genuinely near-black, and completely unchanged
+between f0 (vcol=red) and f360 (vcol=blue).  **This confirms the
+whole-screen "black" report**: the primitive is drawing across the
+screen interior, but outputs an almost-zero colour regardless of the
+vertex RGBA input.  The corner samples (`xfb0`/`xfb1`) differ between
+this boot and the previous "black" boot (`b1317972`/`c352b786` vs
+`b52e8675`/`c749e386`) even though the driver code is unchanged between
+those two boots' logging point — i.e. the corner pixel is non-deterministic
+across reboots (mini leftover memory / a scissor-edge artifact at exactly
+pixel (0,0)), while the centre pixel is deterministically near-black.
+The corner samples are therefore a red herring; trust `xfbc`, not
+`xfb0`/`xfb1`, for judging overall fill colour from now on.
+
+Next hypothesis: `GX_Init()` itself defensively initializes XF 0x100a
+(chan0 ambient colour) and XF 0x100c (chan0 material colour) to
+`BLACK={0,0,0,0}` / `WHITE={255,255,255,255}` (register values
+`0x00000000` / `0xFFFFFFFF`) even for its own default
+`matsrc=GX_SRC_VTX, enable=GX_DISABLE` channel.  Our driver has never
+written either register in the VTX path — they're left at whatever mini
+left behind.  The GX_SetChanCtrl doc comment says these should be
+irrelevant when `enable=0`, but that's a software API guarantee, not a
+verified hardware one.  Test whether real silicon depends on them being
+initialized by adding both writes with GX_Init()'s own default values.
+
+- solid red/green/blue (tracking vcol): confirms the missing
+  ambient/material registers were the cause: the vertex-colour channel
+  computation depends on them being sane even when nominally bypassed by
+  `matsrc=GX_SRC_VTX`.
+- still black: rule out ambient/material register content entirely; the
+  bug is elsewhere in the channel/TEV/PE path (next candidates: dst-alpha
+  config, dither, or a raster interpolator enable bit not yet identified).
+
+Deployed image `f940fac719275f6558776ce1539d786e76996e8f870ee08fc223b449caeaf977`
+contains both XF 0x100a/0x100c initialization writes. Awaiting hardware
+result.
+
 ---
 
 ## Known pitfalls

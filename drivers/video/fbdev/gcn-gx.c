@@ -702,21 +702,31 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	 */
 	/*
 	 * DIAGNOSTIC RESULT: matsrc=GX_SRC_REG with a hardcoded XF 0x100c
-	 * material colour (previous test) reverted the screen to the clean,
-	 * uniform "no visible writes" green signature (xfb corner readback
-	 * identical to the very first green-preclear test).  That is the
-	 * opposite of matsrc=GX_SRC_VTX, which visibly disturbed the EFB
-	 * (non-uniform corner readback, reported as black on screen).
-	 * GX_SRC_VTX is therefore the configuration making actual progress;
-	 * reverted back to it here.  The remaining mystery is why the output
-	 * colour is wrong instead of the vertex RGBA colour — see the added
-	 * centre-pixel xfb sample below for more visibility into how much of
-	 * the screen is actually affected.
+	 * material colour reverted the screen to the clean, uniform "no
+	 * visible writes" green signature — the opposite of matsrc=GX_SRC_VTX,
+	 * which visibly disturbs the EFB.  GX_SRC_VTX is therefore reverted to
+	 * here.  The added centre-pixel xfb sample then showed the screen
+	 * interior is genuinely near-black (`xfbc=157d157d` decodes to
+	 * roughly RGB(17,24,16)) and constant regardless of the vertex colour
+	 * cycling red→blue between f0 and f360 — the channel output does not
+	 * track vertex colour at all.
+	 *
+	 * GX_Init() itself defensively initializes XF 0x100a (chan0 ambient
+	 * colour) and XF 0x100c (chan0 material colour) to BLACK/WHITE
+	 * (0x00000000 / 0xFFFFFFFF) even for its default matsrc=GX_SRC_VTX,
+	 * enable=GX_DISABLE channel — registers our driver has never written,
+	 * left instead at whatever mini left behind.  Per the GX_SetChanCtrl
+	 * doc these should be irrelevant when enable=0, but that is a software
+	 * API guarantee, not a verified hardware one.  Test whether real
+	 * silicon actually depends on them being sane by initializing both to
+	 * GX_Init()'s own defaults.
 	 */
 	gx_load_xf_reg(0x1008, 0x00000001);
 	gx_load_xf_reg(0x1009, 0x00000001);
 	gx_load_xf_reg(0x100e, 0x00000401);
 	gx_load_xf_reg(0x1010, 0x00000401);
+	gx_load_xf_reg(0x100a, 0x00000000);	/* GX_SetChanAmbColor(COLOR0A0, BLACK) */
+	gx_load_xf_reg(0x100c, 0xFFFFFFFF);	/* GX_SetChanMatColor(COLOR0A0, WHITE) */
 	gx_load_xf_reg(0x1005, 0);	/* GX_SetClipMode(GX_CLIP_ENABLE) */
 	gx_load_xf_reg(0x103f, 0);
 
