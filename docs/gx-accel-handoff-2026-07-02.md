@@ -367,6 +367,48 @@ Current diagnostic state:
 - quad vertices are position-only
 - TEV texture fetch disabled, EFB->XFB copy still enabled
 
+Boot result:
+
+```text
+f0 post:   SR=000c RDoff=0160 WToff=0160
+f1 post:   SR=000c RDoff=0160 WToff=0160
+f2 post:   SR=000c RDoff=0160 WToff=0160
+f3 post:   SR=000c RDoff=0160 WToff=0160
+f360 post: SR=000c RDoff=0160 WToff=0160
+```
+
+Visual result: white/pixel-noise output, consistent with copying EFB contents
+generated from missing/undefined TEX0 input.  The important hardware result is
+that the pipeline drains cleanly through frame 360.
+
+Interpretation: `sourcerow=GX_TG_TEX0` by itself is safe when no TEX0 vertex
+attribute is present.  The frame-2 downstream stall specifically requires a
+direct TEX0 vertex attribute while XF texgen output is enabled.  A viable
+production path should avoid direct TEX0 attributes and generate texcoords from
+position instead.
+
+Next practical test: source texcoord 0 from position (`XF 0x1040=0x000`), remove
+TEX0 from VCD/VAT, load TEXMTX0 as a scale matrix mapping pixel XY to normalized
+ST, enable TEV texture fetch, bind `gx_tex_buf`, and draw a position-only quad.
+This tests whether the full texture path can work without the bad TEX0 vertex
+attribute.
+
+That practical texture-fetch test is now deployed as image hash:
+
+```text
+c1fc6e2a0539204e23cd6b0d7e5edcea7aae1abbbfc95de6bc41bc9f97752c7d
+```
+
+Current diagnostic state:
+
+- `XF 0x103F = 1`
+- `XF 0x1040 = 0x000` (`sourcerow=GX_TG_POS`, projection=0)
+- `TEXMTX0 = scale(position.xy -> normalized st)`
+- `VCD TEX0 = none`
+- quad vertices are position-only
+- `gx_tex_buf` is filled with solid RGB565 red/green/blue cycling every 180 frames
+- TEV texture fetch enabled, texmap 0 bound, EFB->XFB copy enabled
+
 ### Step 2: Expand to full texcoord path
 
 Once SR=000c with XF=1 + any working texcoord config:

@@ -243,6 +243,22 @@ static void gx_load_identity_pos_mtx0(void)
 	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
 }
 
+static void gx_load_pos_to_tex_mtx0(u16 width, u16 height)
+{
+	/*
+	 * TEXMTX0 for GX_TG_POS: map object-space quad positions
+	 * (x=0..width, y=0..height) to normalized texture coordinates
+	 * (s=0..1, t=0..1).  This avoids the direct TEX0 vertex attribute path,
+	 * which hardware testing shows wedges the downstream pipeline when
+	 * texgen output is enabled.
+	 */
+	gx_load_xf_regs_n(0x0078, 8);
+	wg_f32_bits(f32_div_u16(1, width)); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ZERO);              wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ZERO);              wg_f32_bits(f32_div_u16(1, height));
+	wg_f32_bits(F32_ZERO);              wg_f32_bits(F32_ZERO);
+}
+
 /* gx_wait_idle - wait for the GP to finish processing the FIFO */
 static void gx_wait_idle(void)
 {
@@ -563,26 +579,26 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 		       (((xo + width  - 1) & 0x7ff) << 12) |
 		       ((yo + height - 1) & 0xfff));
 
-	/* TEV stage 0: output zero colour/alpha, no texture input.
+	/* TEV stage 0: output texture colour/alpha.
 	 * raschan=7 (GX_COLOR_NULL, bits[9:7]=0b111 → 0x380): with numcolchans=0
 	 * there is no raster colour token in the pipeline; raschan=0 (GX_COLOR0A0)
 	 * causes the TEV to wait forever for a colour that never arrives, stalling
 	 * the entire backend from frame 2 onwards (SR stays 0x0004).
-	 * texenable=0 (bit[6]=0): no TMU fetch.  raschan=7 + texenable=0 = 0x380.
+	 * texenable=1 (bit[6]=1): TMU fetch from texmap 0.
 	 */
-	gx_load_bp_reg(0xC008FFFF);
-	gx_load_bp_reg(0xC108FFF0);
-	gx_load_bp_reg(0x25000380);
+	gx_load_bp_reg(0xC008FFF8);
+	gx_load_bp_reg(0xC108FFC0);
+	gx_load_bp_reg(0x250003C0);
 
 	/*
-	 * DIAGNOSTIC: XF texgen output enabled and configured to source TEX0,
-	 * but the vertex stream has no TEX0 attribute.  This splits XF source
-	 * selection from TEX0 attribute presence.
+	 * DIAGNOSTIC: source texcoord 0 from position, not direct TEX0 payload.
+	 * TEXMTX0 scales pixel XY into normalized ST for texture fetch.
 	 */
 	gx_load_xf_reg(0x103f, 1);
-	gx_load_xf_reg(0x1040, 0x200);
+	gx_load_xf_reg(0x1040, 0x000);
 	gx_load_xf_reg(0x1050, 0x3F);
 	gx_load_identity_pos_mtx0();
+	gx_load_pos_to_tex_mtx0(width, height);
 
 	gx_load_xf_regs_n(0x101a, 6);
 	wg_f32_bits(f32_from_u16(width >> 1));
@@ -943,17 +959,28 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
 	static u32 frame_count;
 	u32 phase = frame_count++;
+	static const u16 colors[3] = { 0xF800, 0x07E0, 0x001F };
+	u16 c = colors[(phase / 180) % 3];
+	u32 fill = ((u32)c << 16) | c;
+	u32 *p = (u32 *)gx_tex_buf;
+	u32 n = ((u32)width * height) / 2;
 
 	fifo_pos = 0;
 	gx_current_frame = phase;
 
+	while (n--)
+		*p++ = fill;
+
+	flush_dcache_range((unsigned long)gx_tex_buf,
+			   (unsigned long)gx_tex_buf +
+			   (unsigned long)width * height * 2);
+
 	/*
-	 * DIAGNOSTIC: XF source is TEX0 (XF 0x1040=0x200), but the FIFO carries
-	 * position-only vertices.  If this drains, TEX0 attribute presence is the
-	 * trigger.  If it stalls, TEX0 source selection or missing TEX0 source
-	 * state can also trigger the backend hang.
+	 * DIAGNOSTIC: full texture fetch without direct TEX0 attributes.  Texture
+	 * coordinates are generated from XY position through TEXMTX0.
 	 */
 	gx_setup_texcoord_parse_state(width, height);
+	gx_setup_texture_rgb565(gx_tex_buf, width, height);
 	gx_draw_pos_quad(width, height);
 	if (phase == 360)
 		gx_log_next_submit = true;
