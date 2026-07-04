@@ -353,6 +353,20 @@ safe and the bug specifically requires a TEX0 attribute while texgen output is
 enabled.  If it stalls, either source selection or missing TEX0 source state can
 trigger the backend hang.
 
+That split test is now deployed as image hash:
+
+```text
+afa87b4dcda807e9eb0d41336d785c7c4cd71a466939bbdc0cf0cdf67726b20c
+```
+
+Current diagnostic state:
+
+- `XF 0x103F = 1`
+- `XF 0x1040 = 0x200` (`sourcerow=GX_TG_TEX0`, projection=0)
+- `VCD TEX0 = none`
+- quad vertices are position-only
+- TEV texture fetch disabled, EFB->XFB copy still enabled
+
 ### Step 2: Expand to full texcoord path
 
 Once SR=000c with XF=1 + any working texcoord config:

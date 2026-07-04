@@ -575,12 +575,12 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0x25000380);
 
 	/*
-	 * DIAGNOSTIC: XF texgen output enabled, but source texcoord 0 from
-	 * position rather than TEX0.  TEX0 vertex payload is present but ignored
-	 * by XF, splitting "TEX0 attribute exists" from "XF sources TEX0".
+	 * DIAGNOSTIC: XF texgen output enabled and configured to source TEX0,
+	 * but the vertex stream has no TEX0 attribute.  This splits XF source
+	 * selection from TEX0 attribute presence.
 	 */
 	gx_load_xf_reg(0x103f, 1);
-	gx_load_xf_reg(0x1040, 0x000);
+	gx_load_xf_reg(0x1040, 0x200);
 	gx_load_xf_reg(0x1050, 0x3F);
 	gx_load_identity_pos_mtx0();
 
@@ -612,10 +612,10 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_bp_reg(0x30000000 | (u32)(width  - 1));
 	gx_load_bp_reg(0x31000000 | (u32)(height - 1));
 
-	/* VCD/VAT: direct XY position plus direct TEX0, though XF sources POS. */
+	/* VCD/VAT: direct XY position only; no TEX0 attribute in the FIFO. */
 	gx_load_cp_reg(0x50, 0x200);
-	gx_load_cp_reg(0x60, 0x001);
-	gx_load_cp_reg(0x70, 0x41200008);
+	gx_load_cp_reg(0x60, 0x000);
+	gx_load_cp_reg(0x70, 0x40000008);
 	gx_load_cp_reg(0x80, 0x80000000);
 	gx_load_cp_reg(0x90, 0x00000000);
 }
@@ -948,13 +948,13 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_current_frame = phase;
 
 	/*
-	 * DIAGNOSTIC: XF generates texcoord 0 from position (XF 0x1040=0), while
-	 * the FIFO carries direct TEX0 all-zero payload.  If this drains, the
-	 * frame-2 stall is specific to XF sourcing TEX0.  If it stalls, the TEX0
-	 * vertex attribute itself interacts badly with enabled texgen output.
+	 * DIAGNOSTIC: XF source is TEX0 (XF 0x1040=0x200), but the FIFO carries
+	 * position-only vertices.  If this drains, TEX0 attribute presence is the
+	 * trigger.  If it stalls, TEX0 source selection or missing TEX0 source
+	 * state can also trigger the backend hang.
 	 */
 	gx_setup_texcoord_parse_state(width, height);
-	gx_draw_fullscreen_quad(width, height);
+	gx_draw_pos_quad(width, height);
 	if (phase == 360)
 		gx_log_next_submit = true;
 	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
