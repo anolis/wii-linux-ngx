@@ -446,6 +446,16 @@ Deployed image `fcdb36554396dd6a145e2c15dbb68f8bc3d1f65a819d970821b7cac1aa101641
 contains the `0x90` texMode0 and RVL texRegion[0] fixes.  Awaiting hardware
 result.
 
+Hardware result was still the same vertical stripes/noise, with the FIFO still
+draining and `xfb0/xfb1` unchanged.  Next test explicitly programs BP `0x43`
+to `0x43000040`, matching libogc's `GX_SetZCompLoc(GX_TRUE)` plus
+`GX_SetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR)`, to rule out mini leaving the PE
+in an incompatible EFB pixel format.
+
+Deployed image `8cae3eb7abd85699b1149ce98886fa263f098454883cad650e444183b70a0fff`
+contains the explicit BP `0x43000040` PE-control write.  Awaiting hardware
+result.
+
 ### Step 2: Expand to full texcoord path
 
 Once SR=000c with XF=1 + any working texcoord config:

@@ -443,6 +443,14 @@ static void gx_setup_2d_state(u16 width, u16 height)
 	 */
 	gx_load_bp_reg(0x41000018);
 
+	/*
+	 * BP 0x43: PE control.  Match libogc's GX_SetZCompLoc(GX_TRUE) +
+	 * GX_SetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR): RGB8/Z24 EFB, linear Z,
+	 * and Z compare before texture.  If mini left a different EFB pixel
+	 * format behind, rasterized pixels can be stored/copied incorrectly.
+	 */
+	gx_load_bp_reg(0x43000040);
+
 	/* ---- BP 0xF3: alphaCompare ----
 	 * Hardware reset value is 0x00: comp0 = NEVER (0), comp1 = NEVER (0),
 	 * logic = AND (0).  NEVER AND NEVER = ALWAYS_FAIL — every rasterized
@@ -576,6 +584,7 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 
 	gx_load_bp_reg(0x40000000);	/* Z disabled */
 	gx_load_bp_reg(0x41000018);	/* colour/alpha update enabled */
+	gx_load_bp_reg(0x43000040);	/* RGB8/Z24 EFB, linear Z, zcomp before tex */
 	gx_load_bp_reg(0xF33F0000);	/* alpha test always passes */
 
 	/* genMode: 1 texgen, 0 colour channels, 1 TEV stage */
