@@ -423,18 +423,28 @@ Visual result: vertical stripes/noise.  No frame-2 stall.  `xfb0` remained near
 video black rather than the expected solid red/blue YUYV values, so the failure
 has moved to texture coordinate/object correctness.
 
-Comparison against local `/home/anolis/repos/libogc` found three mismatches in
-this test:
+Comparison against local `/home/anolis/repos/libogc` found mismatches in this
+test:
 
 - `GX_TG_POS` texgen uses `stq=1`, so `XF 0x1040` should be `0x004`, not `0x000`.
 - Selecting `GX_TEXMTX0` for texcoord0 requires matrix-index low bits
   `GX_TEXMTX0 << 6` (`30 << 6`) written to CP `0x30` and XF `0x1018`.
-- Non-mipmap `GX_InitTexObj` default `texMode0` is `0x80`; the old `0x250` was
-  not libogc's default object state.
+- Non-mipmap `GX_InitTexObj` default `texMode0` is `0x90`
+  (`0x10` mag-filter bit plus `0x80` non-mipmap min filter); the old `0x250`
+  was not libogc's default object state.
+- RVL default `texRegion[0]` encodes TMEM cache-size metadata in BP `0x8C/0x90`
+  and uses odd-bank base `0x08000`; the hand-written `0x8C000000/0x90004000`
+  did not match libogc.
 
 Deployed follow-up build `e881d745b437ae72f9ec2c123abe4713a29020467946238fb7c83e08b4bfaa15`
-applies those three fixes while keeping the same position-generated
-texture-fetch diagnostic.  Awaiting hardware result.
+applied the first two texgen fixes plus the mistaken `0x80` texMode0 value.
+Hardware result was still vertical stripes/noise.  Next build corrects
+texMode0 to `0x90` and changes BP `0x8C/0x90` to libogc RVL texRegion[0]
+values `0x8C0D8000/0x900D8400`.
+
+Deployed image `fcdb36554396dd6a145e2c15dbb68f8bc3d1f65a819d970821b7cac1aa101641`
+contains the `0x90` texMode0 and RVL texRegion[0] fixes.  Awaiting hardware
+result.
 
 ### Step 2: Expand to full texcoord path
 

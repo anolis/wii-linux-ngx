@@ -656,8 +656,11 @@ static void gx_setup_texture_rgb565(void *tile_buf, u16 width, u16 height)
 	u32 phys = virt_to_phys(tile_buf);
 	u32 img0;
 
-	/* BP 0x80 texMode0: libogc GX_InitTexObj non-mipmap default. */
-	gx_load_bp_reg(0x80000080);
+	/*
+	 * BP 0x80 texMode0: libogc GX_InitTexObj non-mipmap default with
+	 * wrap_s/wrap_t=CLAMP, mag filter bit set, and non-mipmap min filter.
+	 */
+	gx_load_bp_reg(0x80000090);
 
 	/* BP 0x84 texMode1: LOD disabled */
 	gx_load_bp_reg(0x84000000);
@@ -668,13 +671,14 @@ static void gx_setup_texture_rgb565(void *tile_buf, u16 width, u16 height)
 	       (4U << 20);
 	gx_load_bp_reg(0x88000000 | img0);
 
-	/* BP 0x8C texImage1: TMEM even bank — default region at offset 0 */
-	gx_load_bp_reg(0x8C000000);
-
-	/* BP 0x90 texImage2: TMEM odd bank — default region at offset 0x80000
-	 * data = 0x80000 >> 5 = 0x4000
+	/*
+	 * BP 0x8C/0x90 texImage1/2: RVL libogc default texRegion[0].
+	 * GX_InitTexCacheRegion(..., even=0x00000, odd=0x08000,
+	 * size_even=size_odd=GX_TEXCACHE_32K) encodes both the TMEM base and
+	 * cache-size fields.  The odd bank is 0x08000 on Wii, not 0x80000.
 	 */
-	gx_load_bp_reg(0x90004000);
+	gx_load_bp_reg(0x8C0D8000);
+	gx_load_bp_reg(0x900D8400);
 
 	/* BP 0x94 texImage3: physical address >> 5 */
 	gx_load_bp_reg(0x94000000 | ((phys >> 5) & 0x00ffffff));
