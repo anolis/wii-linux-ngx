@@ -732,6 +732,23 @@ gx_load_bp_reg(0x68000000); /* GX_SetFieldMode(GX_FALSE, GX_FALSE) */
 Hypothesis: copy-clear can update/clear EFB while ordinary raster writes may be blocked
 if mini left one or both field masks disabled.
 
+Result: still vertical bars/noise.  Fresh dmesg showed the same clean drain and stale
+XFB samples:
+
+- f360 `RDoff == WToff == 0x01a0`
+- f360 `vcol=0000ff`
+- XFB samples remained unchanged after f1
+
+Field mask/state is not sufficient.
+
+Next test: issue a proven `GX_CopyDisp(clear=true)` with black clear colour before the
+vertex-colour draw, then run the ordinary non-clear display copy.  Expected outcomes:
+
+- red/green/blue: vertex-colour raster writes work after an explicit EFB clear
+- black: pre-clear works but primitive raster writes still do not update EFB
+- vertical bars/noise: clear-before-draw ordering is not working or the clear did not run
+  in this combined command stream
+
 ---
 
 ## Known pitfalls
