@@ -704,7 +704,12 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_xf_reg(0x1009, 0x00000001);
 	gx_load_xf_reg(0x100e, 0x00000401);
 	gx_load_xf_reg(0x1010, 0x00000401);
-	gx_load_xf_reg(0x1005, 1);	/* GX_SetClipMode(GX_CLIP_ENABLE) */
+	/*
+	 * GX_SetClipMode(GX_CLIP_ENABLE): libogc writes XF 0x1005 = mode&1
+	 * directly, and GX_CLIP_ENABLE is defined as 0 (GX_CLIP_DISABLE=1).
+	 * The previous write of 1 here actually selected GX_CLIP_DISABLE.
+	 */
+	gx_load_xf_reg(0x1005, 0);
 	gx_load_xf_reg(0x103f, 0);
 
 	gx_load_identity_pos_mtx0();
