@@ -654,6 +654,64 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_cp_reg(0x90, 0x00000000);
 }
 
+static void gx_setup_vertex_color_state(u16 width, u16 height)
+{
+	u32 xo, yo;
+
+	gx_load_bp_reg(0x40000000);	/* Z disabled */
+	gx_load_bp_reg(0x41000018);	/* colour/alpha update enabled */
+	gx_load_bp_reg(0x43000040);	/* RGB8/Z24 EFB, linear Z, zcomp before tex */
+	gx_load_bp_reg(0xF33F0000);	/* alpha test always passes */
+
+	/* genMode: 0 texgens, 1 colour channel, 1 TEV stage */
+	gx_load_bp_reg(0x00000010);
+
+	xo = 0x156;
+	yo = 0x156;
+	gx_load_bp_reg(0x20000000 | ((xo & 0x7ff) << 12) | (yo & 0x7ff));
+	gx_load_bp_reg(0x21000000 |
+		       (((xo + width  - 1) & 0x7ff) << 12) |
+		       ((yo + height - 1) & 0xfff));
+
+	/* TEV PASSCLR: output raster colour/alpha, no texture fetch. */
+	gx_load_bp_reg(0xC008FFFA);
+	gx_load_bp_reg(0xC108FFD0);
+	gx_load_bp_reg(0x25000000);
+
+	/* XF: one colour channel, one direct colour, zero texcoords. */
+	gx_load_xf_reg(0x1008, 0x00000001);
+	gx_load_xf_reg(0x1009, 0x00000001);
+	gx_load_xf_reg(0x100e, 0x00000201);
+	gx_load_xf_reg(0x1010, 0x00000201);
+	gx_load_xf_reg(0x103f, 0);
+
+	gx_load_identity_pos_mtx0();
+
+	gx_load_xf_regs_n(0x101a, 6);
+	wg_f32_bits(f32_from_u16(width >> 1));
+	wg_f32_bits(F32_NEG(f32_from_u16(height >> 1)));
+	wg_f32_bits(F32_16M);
+	wg_f32_bits(f32_from_u16((width >> 1) + 342));
+	wg_f32_bits(f32_from_u16((height >> 1) + 342));
+	wg_f32_bits(F32_16M);
+
+	gx_load_xf_regs_n(0x1020, 7);
+	wg_f32_bits(f32_div_u16(2, width));
+	wg_f32_bits(F32_NEG_ONE);
+	wg_f32_bits(F32_NEG(f32_div_u16(2, height)));
+	wg_f32_bits(F32_ONE);
+	wg_f32_bits(F32_NEG_ONE);
+	wg_f32_bits(F32_ZERO);
+	gx_wr32be(1);
+
+	/* VCD/VAT: direct XY position + direct RGBA8 colour. */
+	gx_load_cp_reg(0x50, 0x2200);
+	gx_load_cp_reg(0x60, 0x0000);
+	gx_load_cp_reg(0x70, 0x40016008);
+	gx_load_cp_reg(0x80, 0x80000000);
+	gx_load_cp_reg(0x90, 0x00000000);
+}
+
 /*
  * gx_setup_texture_rgb565 - bind a tiled RGB565 buffer to texmap 0.
  *
@@ -764,6 +822,27 @@ static void gx_draw_pos_quad(u16 width, u16 height)
 	wg_f32_bits(fw);       wg_f32_bits(F32_ZERO);
 	wg_f32_bits(fw);       wg_f32_bits(fh);
 	wg_f32_bits(F32_ZERO); wg_f32_bits(fh);
+}
+
+static void gx_draw_color_quad(u16 width, u16 height, u8 r, u8 g, u8 b)
+{
+	u32 fw = f32_from_u16(width);
+	u32 fh = f32_from_u16(height);
+
+	gx_wr8(0x80);			/* GX_QUADS | vtxfmt 0 */
+	gx_wr16be(4);
+
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
+	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
+
+	wg_f32_bits(fw);       wg_f32_bits(F32_ZERO);
+	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
+
+	wg_f32_bits(fw);       wg_f32_bits(fh);
+	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
+
+	wg_f32_bits(F32_ZERO); wg_f32_bits(fh);
+	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1014,21 +1093,20 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_current_frame = phase;
 
 	/*
-	 * DIAGNOSTIC: bypass texture fetch and drawing.  Display-copy with
-	 * clear=1 should copy the previous EFB contents into XFB and then clear
-	 * EFB to this solid RGB colour.  By the second frame the VI should show
-	 * the clear colour if the EFB->XFB copy path is actually writing XFB.
+	 * DIAGNOSTIC: bypass texture fetch.  Draw a full-screen direct RGBA8
+	 * vertex-colour quad, then use the proven non-clear EFB->XFB copy.
 	 */
-	gx_set_copy_clear_rgb(c[0], c[1], c[2]);
+	gx_setup_vertex_color_state(width, height);
+	gx_draw_color_quad(width, height, c[0], c[1], c[2]);
 	if (phase == 360)
 		gx_log_next_submit = true;
-	gx_copy_efb_to_xfb(xfb_phys, width, height, true);
+	gx_copy_efb_to_xfb(xfb_phys, width, height, false);
 	gx_submit_cmds();
 
 	/* Diagnostic: log tex and XFB content for frames 0-3 and at color start */
 	if (phase < 4 || phase == 360) {
 		const u32 *xv = (const u32 *)__va(xfb_phys);
-		pr_info("gcn-gx: f%u clear=%02x%02x%02x xfb0=%08x xfb1=%08x\n",
+		pr_info("gcn-gx: f%u vcol=%02x%02x%02x xfb0=%08x xfb1=%08x\n",
 			phase, c[0], c[1], c[2], xv[0], xv[1]);
 	}
 }

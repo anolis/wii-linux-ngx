@@ -467,6 +467,21 @@ copy control, or XFB/VI memory format rather than texture or raster state.
 Deployed image `6311481a4c33228e84a95b8a26349ffc90990fbad1e40593d64522dfae75e4ab`
 contains the copy-clear diagnostic.  Awaiting hardware result.
 
+Hardware result: solid red, green, and blue appeared.  This proves CP/FIFO,
+display-copy execution, copy destination, and VI-visible XFB writes are working.
+The fault is before display-copy: either rasterization/PE draw into EFB or TMU
+texture sampling/TEV state.
+
+Next diagnostic removes TMU but keeps rasterization: draw a full-screen direct
+RGBA8 vertex-colour quad (`VCD_LO=0x2200`, `VAT0=0x40016008`,
+`XF 0x1008=1`) with `numchans=1`, `numtexgens=0`, TEV `PASSCLR`, then perform
+normal non-clear EFB->XFB copy.  If solid colours appear, rasterization works
+and the remaining bug is texture sampling.  If stripes return, focus on
+position transform, vertex/color channel state, or PE raster writes.
+
+Deployed image `6539a7899b263d47938348a28243cfe64974e6c01435f01f2ab722578fb31abe`
+contains the vertex-colour raster diagnostic.  Awaiting hardware result.
+
 ### Step 2: Expand to full texcoord path
 
 Once SR=000c with XF=1 + any working texcoord config:
