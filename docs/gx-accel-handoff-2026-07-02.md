@@ -1050,10 +1050,9 @@ Expected result:
 - black/other: the primitive is modifying EFB, but the constant TEV configuration is not
   producing the expected colour; inspect TEV/output-stage encoding more deeply.
 
-Built local image `1a8c2b1f75a02b1140975b9d5689b5719c58d86f231608ea5de6b5dd3ab56041`,
-but deployment was blocked because the host only saw the card readers as 0-byte devices
-and no `/dev/sdb1` partition was present.  This image has **not** been copied to the SD
-card yet.
+Deployed image `1a8c2b1f75a02b1140975b9d5689b5719c58d86f231608ea5de6b5dd3ab56041`
+to `/media/anolis/BOOTWII/gumboot/zImage.ngx` after the card reappeared as `/dev/sdd1`
+(`BOOTWII`) and `/dev/sdd2` (`WII-LINUX-NGX`).  Awaiting hardware result.
 
 ---
 
