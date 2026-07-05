@@ -1106,6 +1106,28 @@ state agrees on `numcolchans=0`:
 Deployed image `5938e69bf97e56893c1207b7b3060f558ba423e4cfcc817deccdcd068fd86914`
 contains this genMode/XF channel-count consistency fix.  Awaiting hardware result.
 
+Result: **still green**. Fresh dmesg:
+
+```
+f0   pre/post: pos=480 RDoff=WToff=01e0, xfbc=72487238
+f360 pre/post: pos=480 RDoff=WToff=01e0, xfbc=72487238
+```
+
+The genMode/XF colour-channel count mismatch was real but not the blocker: the corrected
+stream drains fully and the centre XFB sample remains the green pre-clear.
+
+Next test isolates viewport/projection edge cases.  Keep the same position-only,
+zero-colour-channel, constant-white TEV state, but replace the pixel-space orthographic
+projection with identity orthographic projection and draw one oversized clip-space
+triangle: `(-4,-4)`, `(4,-4)`, `(0,4)`.
+
+- white: the previous pixel-space ortho/projection or rectangle coverage was wrong.
+- green: even an oversized clip-space primitive does not write EFB; move on to scissor,
+  cull/front-face, PE/raster state, or an XF/CP state bit outside projection.
+
+Deployed image `e0e8c2e19e89f943946e2005be9791994c1f99c11af8ebae6ff7daa522477e58`
+contains this identity-projection oversized-triangle diagnostic.  Awaiting hardware result.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
