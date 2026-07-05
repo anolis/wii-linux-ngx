@@ -1425,6 +1425,37 @@ all frames:
   geometry/viewport/scissor or PE state.
 - green unchanged: the visual noise may have been unrelated or intermittent.
 
+Deployed image `4d748314afcf6f3b939dbac45f9ebf351b6d702bb8e192a90b7c12875dea0c1e`
+contains the split primitive/copy diagnostic.
+
+Result: **green with some noise** visually. Fresh dmesg:
+
+```
+f0 clear submit: pos=64  RDoff=WToff=0040
+f1 primitive:    pos=352 RDoff=WToff=0160
+f2 copy:         pos=32  RDoff=WToff=0020, xfbc=72487238
+f360 copy:       pos=32  RDoff=WToff=0020, xfbc=72496939
+```
+
+Interpretation: splitting primitive and copy submits did not make the output stable white,
+so same-FIFO copy timing is not sufficient to explain the noisy/partial primitive result.
+The primitive submit and copy submit both drain cleanly.  Continue on primitive assembly,
+geometry/viewport/scissor, or PE state.
+
+Next diagnostic keeps the one-shot green seed and split primitive/copy submits, but
+replaces the full-screen `GX_QUADS` rectangle with two explicit `GX_TRIANGLES`:
+
+```
+frame 0: copy-clear green
+all frames:
+  submit A: constant-white position-only rectangle as two triangles
+  submit B: final EFB->XFB copy, clear=false
+```
+
+- stable white: the issue was GX_QUADS primitive assembly or quad-specific setup.
+- green with noise: primitive assembly type is not the main cause; continue toward
+  viewport/projection/scissor or PE update state.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This

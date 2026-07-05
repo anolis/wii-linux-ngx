@@ -841,11 +841,19 @@ static void gx_draw_pos_quad(u16 width, u16 height)
 	u32 fw = f32_from_u16(width);
 	u32 fh = f32_from_u16(height);
 
-	gx_wr8(0x80);			/* GX_QUADS | vtxfmt 0 */
-	gx_wr16be(4);
+	/*
+	 * DIAGNOSTIC: avoid GX_QUADS primitive assembly.  Draw the same rectangle
+	 * as two explicit triangles while leaving the rest of the raster/TEV/PE
+	 * state unchanged.
+	 */
+	gx_wr8(0x90);			/* GX_TRIANGLES | vtxfmt 0 */
+	gx_wr16be(6);
 
 	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
 	wg_f32_bits(fw);       wg_f32_bits(F32_ZERO);
+	wg_f32_bits(fw);       wg_f32_bits(fh);
+
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
 	wg_f32_bits(fw);       wg_f32_bits(fh);
 	wg_f32_bits(F32_ZERO); wg_f32_bits(fh);
 }
