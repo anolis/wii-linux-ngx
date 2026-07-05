@@ -1269,6 +1269,35 @@ keeping the green pre-clear and current logging.
 Deployed image `eeadda11112ebf963caf219adccbe7ed7b065a21df14c94024da969281b942e3`
 contains this exact known-black colour-path restore.  Awaiting hardware result.
 
+Result: **green still**. Fresh dmesg:
+
+```
+f0   pre/post: pos=480 RDoff=WToff=01e0, xfbc=72487238
+f360 pre/post: pos=480 RDoff=WToff=01e0, xfbc=72487238
+```
+
+At this point the active source diff against `1cf82d033072` in `gcn-gx.c` is only comments
+and an unused helper.  No other tracked files differ except this handoff document.  To
+separate source-state drift from build/runtime/environment drift, a temporary worktree was
+created at `/tmp/wii-known-black` and checked out at exact commit `1cf82d033072`:
+
+```
+git worktree add -f /tmp/wii-known-black 1cf82d033072
+cp /home/anolis/repos/wii-linux-ngx/.config /tmp/wii-known-black/.config
+CCACHE_TEMPDIR=/tmp CCACHE_DIR=/home/anolis/repos/wii-linux-ngx/.ccache \
+  make ARCH=powerpc CROSS_COMPILE=powerpc-linux-gnu- -j$(nproc)
+```
+
+Deployed image `e4b1551f7eeaaae3c569d0699ab02cb6ff145a664685ff7aa0e6e5547245bc51`
+is built from exact historical commit `1cf82d033072`, the commit that previously produced
+the confirmed near-black centre sample (`xfbc=157d157d`).  Awaiting hardware result.
+
+- black/near-black: the historical source still reproduces; inspect generated FIFO bytes
+  or compiler/build differences between HEAD and this worktree.
+- green: the old black observation is not reproducible on the current runtime/card/setup;
+  treat the green pre-clear result as the reliable baseline and stop chasing
+  `1cf82d033072` as known-good.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
