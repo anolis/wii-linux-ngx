@@ -659,6 +659,8 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 
 static void gx_setup_vertex_color_state(u16 width, u16 height)
 {
+	u32 xo, yo;
+
 	gx_load_bp_reg(0x40000000);	/* Z disabled */
 	gx_load_bp_reg(0x41000018);	/* colour/alpha update enabled */
 	gx_load_bp_reg(0x43000040);	/* RGB8/Z24 EFB, linear Z, zcomp before tex */
@@ -669,17 +671,19 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	/* genMode: 0 texgens, 1 colour channel, 1 TEV stage */
 	gx_load_bp_reg(0x00000010);
 
-	/* DIAGNOSTIC: raw full-range scissor, bypass GX's +342 screen offset. */
-	gx_load_bp_reg(0x20000000);
-	gx_load_bp_reg(0x21000000 | (0x7ff << 12) | 0xfff);
+	xo = 0x156;
+	yo = 0x156;
+	gx_load_bp_reg(0x20000000 | ((xo & 0x7ff) << 12) | (yo & 0x7ff));
+	gx_load_bp_reg(0x21000000 |
+		       (((xo + width  - 1) & 0x7ff) << 12) |
+		       ((yo + height - 1) & 0xfff));
 	gx_load_bp_reg(0x59000000);	/* GX_SetScissorBoxOffset(0, 0) */
 
 	/*
 	 * DIAGNOSTIC: return to the direct vertex-colour path that previously
-	 * produced real full-screen near-black writes, but keep the current
-	 * geometry workarounds (full scissor, identity projection, oversized XYZ
-	 * triangles).  This separates the no-channel/constant-TEV path from
-	 * primitive coverage.
+	 * produced real full-screen near-black writes.  Restore the older
+	 * pixel-space geometry setup as a known-writing baseline before
+	 * bisecting projection/scissor/primitive differences.
 	 */
 	gx_load_bp_reg(0xC008FFFA);	/* TEV PASSCLR: colour = RASC */
 	gx_load_bp_reg(0xC108FFD0);	/* TEV PASSCLR: alpha = RASA */
@@ -747,18 +751,18 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	wg_f32_bits(F32_16M);
 
 	gx_load_xf_regs_n(0x1020, 7);
+	wg_f32_bits(f32_div_u16(2, width));
+	wg_f32_bits(F32_NEG_ONE);
+	wg_f32_bits(F32_NEG(f32_div_u16(2, height)));
 	wg_f32_bits(F32_ONE);
-	wg_f32_bits(F32_ZERO);
-	wg_f32_bits(F32_ONE);
-	wg_f32_bits(F32_ZERO);
-	wg_f32_bits(F32_ONE);
+	wg_f32_bits(F32_NEG_ONE);
 	wg_f32_bits(F32_ZERO);
 	gx_wr32be(1);
 
-	/* VCD/VAT: direct XYZ position + direct RGBA8 colour. */
+	/* VCD/VAT: direct XY position + direct RGBA8 colour. */
 	gx_load_cp_reg(0x50, 0x2200);
 	gx_load_cp_reg(0x60, 0x0000);
-	gx_load_cp_reg(0x70, 0x40016009);
+	gx_load_cp_reg(0x70, 0x40016008);
 	gx_load_cp_reg(0x80, 0x80000000);
 	gx_load_cp_reg(0x90, 0x00000000);
 }
@@ -863,23 +867,22 @@ static void gx_draw_fullscreen_quad(u16 width, u16 height)
 
 static void gx_draw_pos_quad(u16 width, u16 height, u8 r, u8 g, u8 b)
 {
-	gx_wr8(0x90);			/* GX_TRIANGLES | vtxfmt 0 */
-	gx_wr16be(6);
+	u32 fw = f32_from_u16(width);
+	u32 fh = f32_from_u16(height);
 
-	/* Huge clip-space triangle: covers the viewport after identity ortho. */
-	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO);
-	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
-	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO);
-	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
-	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); wg_f32_bits(F32_ZERO);
+	gx_wr8(0x80);			/* GX_QUADS | vtxfmt 0 */
+	gx_wr16be(4);
+
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
 	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
 
-	/* Same triangle, opposite winding, to defeat any stale/hidden cull state. */
-	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(fw);       wg_f32_bits(F32_ZERO);
 	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
-	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); wg_f32_bits(F32_ZERO);
+
+	wg_f32_bits(fw);       wg_f32_bits(fh);
 	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
-	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO);
+
+	wg_f32_bits(F32_ZERO); wg_f32_bits(fh);
 	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
 }
 

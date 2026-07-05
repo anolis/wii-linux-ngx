@@ -1219,6 +1219,31 @@ Deployed image `9bfae070b9489a7cf13fdf974cfb6eb07a3f64d24e060a51613924d2f96e6484
 contains this direct-CLR0/PASSCLR-with-current-geometry diagnostic.  Awaiting hardware
 result.
 
+Result: **green still**. Fresh dmesg:
+
+```
+f0   pre/post: pos=544 RDoff=WToff=0220, xfbc=72487238
+f360 pre/post: pos=544 RDoff=WToff=0220, xfbc=72487238
+```
+
+Direct `CLR0` + TEV `PASSCLR` did not regain the older near-black full-screen write when
+combined with the newer geometry workarounds.  That points back at a geometry/state
+difference rather than the no-channel constant-TEV branch alone.
+
+Next test restores the older known-writing geometry baseline: normal GX-style scissor
+with the 342 offset, pixel-space orthographic projection, direct XY+RGBA8 vertices, and
+`GX_QUADS`.  The green pre-clear remains in place.
+
+- black/near-black: the older writing baseline is recovered; then bisect which geometry
+  change broke visible primitive writes.
+- red/green/blue tracking `vcol`: even better, the restored path fixed colour as well.
+- green: the earlier black-writing observation depended on some other state not yet
+  restored; compare against the exact known-black commit.
+
+Deployed image `bd5ebef7c1295010f4453c3b8e925ae005782e432f4f6551b3082cf720877fe9`
+contains this restored pixel-space direct-colour geometry baseline.  Awaiting hardware
+result.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
