@@ -1019,6 +1019,42 @@ themselves are healthy, with zero dependency on the colour channel.
 Deployed image `c98af827a860f1daa31a829e5fd1ef328604aeec668f6142c53de3a19e183f4e`
 contains the CC_ONE TEV bypass diagnostic. Awaiting hardware result.
 
+Result: **green**.  The SD rootfs was not mounted cleanly on return (reader showed the
+card device as `0B`), so no fresh dmesg was available for this boot.  The visual result is
+still decisive for the current discriminator: the proven green pre-clear survived to the
+final copy, so the CC_ONE primitive stream did not produce visible EFB writes.  This does
+not fit the simple "colour-channel outputs black" model, because CC_ONE should be
+independent of the colour channel.
+
+Important nuance: that CC_ONE test still left `numcolchans=1`, `raschan=GX_COLOR0A0`, and
+sent a direct CLR0 vertex payload even though TEV colour no longer consumed RASC.  It may
+therefore still depend on a raster colour token or channel-side state in ways we did not
+intend to test.
+
+Next test removes that dependency completely:
+
+- genMode `numcolchans=0`
+- XF `VtxSpecs`/`SETNUMCHAN` set to zero colour channels
+- TEV order `raschan=GX_COLOR_NULL`, texture disabled
+- TEV colour `d=GX_CC_ONE`
+- TEV alpha `d=GX_CA_ZERO`
+- VCD/VAT and draw payload changed to position-only (`gx_draw_pos_quad`)
+
+Expected result:
+
+- white: TEV/PE and primitive raster are healthy when raster colour is fully removed; the
+  previous green result was caused by lingering colour-channel/raster-token state.
+- green: even a position-only primitive with constant-white TEV does not modify EFB; focus
+  on primitive assembly/rasterization state, viewport/scissor, cull/front-face, or PE write
+  state that differs from copy-clear.
+- black/other: the primitive is modifying EFB, but the constant TEV configuration is not
+  producing the expected colour; inspect TEV/output-stage encoding more deeply.
+
+Built local image `1a8c2b1f75a02b1140975b9d5689b5719c58d86f231608ea5de6b5dd3ab56041`,
+but deployment was blocked because the host only saw the card readers as 0-byte devices
+and no `/dev/sdb1` partition was present.  This image has **not** been copied to the SD
+card yet.
+
 ---
 
 ## Known pitfalls

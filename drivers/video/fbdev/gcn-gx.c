@@ -679,24 +679,15 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 		       ((yo + height - 1) & 0xfff));
 	gx_load_bp_reg(0x59000000);	/* GX_SetScissorBoxOffset(0, 0) */
 
-	/*
-	 * DIAGNOSTIC: three different colour-channel configurations
-	 * (matsrc=VTX passthrough, matsrc=REG, and lit-with-zero-lights) have
-	 * all produced nearly identical near-black output regardless of the
-	 * vertex colour.  Bypass the colour-channel/rasterizer stage entirely
-	 * to test whether the bug is really there or somewhere else in
-	 * TEV/PE: change the colour combiner's `d` input from GX_CC_RASC
-	 * (rasterized colour) to GX_CC_ONE (hardware constant, independent of
-	 * any channel/vertex state) — this should render solid white if
-	 * TEV/PE themselves are healthy.
-	 *   a=b=c=GX_CC_ZERO(15), d=GX_CC_ONE(12) → 0xFFFC.
-	 * If the screen is white: TEV/PE are fine, the bug is 100% isolated
-	 * to colour-channel/rasterizer colour generation.  If still black or
-	 * something else: the bug is downstream of the channel entirely.
-	 */
-	gx_load_bp_reg(0xC008FFFC);
-	gx_load_bp_reg(0xC108FFD0);
-	gx_load_bp_reg(0x25000000);
+		/*
+		 * DIAGNOSTIC: completely remove raster colour from the pipe.  Use no
+		 * colour channels, no direct CLR0 vertex payload, raschan=GX_COLOR_NULL,
+		 * and TEV colour d=GX_CC_ONE.  If this still leaves the green pre-clear
+		 * intact, the problem is not vertex colour parsing or channel control.
+		 */
+		gx_load_bp_reg(0xC008FFFC);
+		gx_load_bp_reg(0xC108FFF0);
+		gx_load_bp_reg(0x25000380);
 
 	/*
 	 * XF: one colour channel, one direct colour, zero texcoords.
@@ -740,8 +731,8 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	 * → 0x403.  Ambient colour register (XF 0x100a) set to WHITE
 	 * (0xFFFFFFFF) so the multiply is a no-op.
 	 */
-	gx_load_xf_reg(0x1008, 0x00000001);
-	gx_load_xf_reg(0x1009, 0x00000001);
+		gx_load_xf_reg(0x1008, 0x00000000);
+		gx_load_xf_reg(0x1009, 0x00000000);
 	gx_load_xf_reg(0x100e, 0x00000403);
 	gx_load_xf_reg(0x1010, 0x00000403);
 	gx_load_xf_reg(0x100a, 0xFFFFFFFF);	/* GX_SetChanAmbColor(COLOR0A0, WHITE) */
@@ -768,10 +759,10 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	wg_f32_bits(F32_ZERO);
 	gx_wr32be(1);
 
-	/* VCD/VAT: direct XY position + direct RGBA8 colour. */
-	gx_load_cp_reg(0x50, 0x2200);
-	gx_load_cp_reg(0x60, 0x0000);
-	gx_load_cp_reg(0x70, 0x40016008);
+		/* VCD/VAT: direct XY position only; no CLR0 payload. */
+		gx_load_cp_reg(0x50, 0x0200);
+		gx_load_cp_reg(0x60, 0x0000);
+		gx_load_cp_reg(0x70, 0x40000008);
 	gx_load_cp_reg(0x80, 0x80000000);
 	gx_load_cp_reg(0x90, 0x00000000);
 }
@@ -1165,7 +1156,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
 	gx_copy_efb_to_xfb(xfb_phys, width, height, true);
 	gx_setup_vertex_color_state(width, height);
-	gx_draw_color_quad(width, height, c[0], c[1], c[2]);
+	gx_draw_pos_quad(width, height);
 	if (phase == 360)
 		gx_log_next_submit = true;
 	gx_copy_efb_to_xfb(xfb_phys, width, height, false);
