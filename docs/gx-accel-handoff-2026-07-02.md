@@ -41,18 +41,35 @@ the current diagnostic path.
 
 Current test in `gcn_gx_blit_fb_rgb565()`:
 
-1. Frame 0: configure the existing position-only primitive path for full-screen
-   coverage.
-2. Draw a constant-white TEV primitive into EFB.  This intentionally avoids
-   copy-clear, TMU fetches, and XF texcoord output.
+Latest result from the no-channel constant-TEV primitive test:
+
+```text
+gcn-gx: f0 pre: SR=0008 RD=0000 WT=01a0 pos=416
+gcn-gx: f0 post: SR=000c RDoff=01a0 WToff=01a0
+gcn-gx: f0 diag=solid-primitive-copy xfb0=178c2f76 xfb1=10782377 xfbc=1a811087
+gcnfb: f0 post-gx-pre-cpu-fill fb0=178c2f76 fb1=10782377 fbc=1a811087
+gcnfb: f0 cpu-fill-green pattern=a52ba515
+```
+
+Interpretation: the FIFO drained, but constant-TEV output did not produce a
+controlled uniform EFB/XFB result.  Later green frames were still only the CPU
+fallback.
+
+Current test in `gcn_gx_blit_fb_rgb565()`:
+
+1. Frame 0: configure direct vertex colour: `genMode` one colour channel,
+   TEV `d=RASC`, ras channel `GX_COLOR0A0`, `XF 0x1008/0x1009 = 1`,
+   `VCD_LO=0x2200`, and `VAT0=0x40016008`.
+2. Draw a full-screen direct RGBA8 green quad into EFB.  This intentionally
+   avoids copy-clear, TMU fetches, and XF texcoord output.
 3. Copy EFB to XFB with `clear=false`.
 4. `gcnfb.c` samples `fb_mem` as `post-gx-pre-cpu-fill`, then CPU-fills green
    for visual stability.
 
-Expected result: frame 0 `post-gx-pre-cpu-fill` should become a uniform
-primitive-derived value if PE primitive writes and display copy are working.  If
-it remains stale/noisy, the primitive path still is not producing controlled EFB
-contents.
+Expected result: frame 0 `post-gx-pre-cpu-fill` should change to a uniform
+green-derived YUYV value if vertex colour, TEV, PE primitive writes, and display
+copy are working.  If it remains stale/noisy, the current primitive path still
+is not producing controlled EFB contents.
 
 Previous test in `gcn_gx_blit_fb_rgb565()`:
 

@@ -668,8 +668,8 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_bp_reg(0x68000000);	/* GX_SetFieldMode(GX_FALSE, GX_FALSE) */
 	gx_load_bp_reg(0xF33F0000);	/* alpha test always passes */
 
-	/* genMode: 0 texgens, 0 colour channels, 1 TEV stage */
-	gx_load_bp_reg(0x00000000);
+	/* genMode: 0 texgens, 1 colour channel, 1 TEV stage */
+	gx_load_bp_reg(0x00000010);
 
 	/* Full-screen primitive coverage. */
 	xo = 0x156;
@@ -681,13 +681,14 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_bp_reg(0x59000000);	/* GX_SetScissorBoxOffset(0, 0) */
 
 	/*
-	 * DIAGNOSTIC: no vertex colour dependency.  Render a constant-white TEV
-	 * primitive to test primitive coverage and PE writes without TMU/XF
-	 * texcoord state or copy-clear side effects.
+	 * DIAGNOSTIC: direct vertex colour. TEV PASSCLR:
+	 *   color = RASC (a=b=c=ZERO, d=RASC)
+	 *   alpha = RASA (a=b=c=ZERO, d=RASA)
+	 * No texture fetch, no XF texcoord output, no copy-clear dependency.
 	 */
-	gx_load_bp_reg(0xC008FFFC);	/* a=b=c=ZERO, d=ONE */
-	gx_load_bp_reg(0xC108FFF0);	/* alpha = ZERO */
-	gx_load_bp_reg(0x25000380);	/* raschan = GX_COLOR_NULL, tex disabled */
+	gx_load_bp_reg(0xC008FFFA);	/* d = GX_CC_RASC */
+	gx_load_bp_reg(0xC108FFF5);	/* d = GX_CA_RASA */
+	gx_load_bp_reg(0x25000000);	/* raschan = GX_COLOR0A0, tex disabled */
 
 	/*
 	 * XF: one colour channel, one direct colour, zero texcoords.
@@ -705,8 +706,8 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	 * encodes attn_fn=GX_AF_SPEC (specular) instead of GX_AF_NONE — an
 	 * invalid attenuation mode for a plain vertex-colour passthrough.
 	 */
-	gx_load_xf_reg(0x1008, 0x00000000);
-	gx_load_xf_reg(0x1009, 0x00000000);
+	gx_load_xf_reg(0x1008, 0x00000001);
+	gx_load_xf_reg(0x1009, 0x00000001);
 	gx_load_xf_reg(0x100e, 0x00000401);
 	gx_load_xf_reg(0x1010, 0x00000401);
 	gx_load_xf_reg(0x1005, 0);	/* GX_SetClipMode(GX_CLIP_ENABLE) */
@@ -731,10 +732,10 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	wg_f32_bits(F32_ZERO);
 	gx_wr32be(1);
 
-	/* VCD/VAT: direct XY position only. */
-	gx_load_cp_reg(0x50, 0x0200);
+	/* VCD/VAT: direct XY position + direct RGBA8 color0. */
+	gx_load_cp_reg(0x50, 0x2200);
 	gx_load_cp_reg(0x60, 0x0000);
-	gx_load_cp_reg(0x70, 0x40000008);
+	gx_load_cp_reg(0x70, 0x40016008);
 	gx_load_cp_reg(0x80, 0x80000000);
 	gx_load_cp_reg(0x90, 0x00000000);
 }
@@ -1121,15 +1122,15 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_current_frame = phase;
 
 	/*
-	 * DIAGNOSTIC: bypass copy-clear entirely. Draw a constant-white
-	 * fullscreen primitive into EFB, then copy EFB to XFB. If PE primitive
-	 * writes and display copy are working, gcnfb's post-GX sample should
-	 * change to a uniform non-stale value before the CPU green fallback.
+	 * DIAGNOSTIC: bypass copy-clear entirely. Draw a direct RGBA8 green
+	 * fullscreen primitive into EFB, then copy EFB to XFB. If the color
+	 * channel, TEV, PE primitive writes, and display copy are working,
+	 * gcnfb's post-GX sample should change before the CPU green fallback.
 	 */
 	if (phase == 0) {
 		fifo_pos = 0;
 		gx_setup_vertex_color_state(width, height);
-		gx_draw_pos_quad(width, height);
+		gx_draw_color_quad(width, height, 0x00, 0xff, 0x00);
 		gx_copy_efb_to_xfb(xfb_phys, width, height, false);
 		gx_submit_cmds();
 	}
@@ -1143,7 +1144,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		const u32 *xv = (const u32 *)__va(xfb_phys);
 		u32 center_off = (u32)(height / 2) * (width / 2) + (width / 4);
 
-		pr_info("gcn-gx: f%u diag=solid-primitive-copy xfb0=%08x xfb1=%08x xfbc=%08x\n",
+		pr_info("gcn-gx: f%u diag=direct-green-copy xfb0=%08x xfb1=%08x xfbc=%08x\n",
 			phase, xv[0], xv[1], xv[center_off]);
 	}
 }
