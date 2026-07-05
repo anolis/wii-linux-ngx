@@ -1079,6 +1079,22 @@ contains this `GX_TRIANGLES` primitive diagnostic.  Plain `cp` was attempted fir
 BOOTWII was mounted read-only; deployment required a one-time `pkexec mount -o remount,rw`
 followed by the same copy/sync/checksum flow.
 
+Result: **green still**. Fresh dmesg:
+
+```
+f0   pre/post: pos=480 RDoff=WToff=01e0, xfbc=7e417e30
+f360 pre/post: pos=480 RDoff=WToff=01e0, xfbc=7e417e30
+```
+
+`GX_TRIANGLES` did not change the outcome.  The command stream drains completely and the
+centre XFB sample remains the green pre-clear.  This rules out the `GX_QUADS` primitive
+assembly path as the reason primitives fail to overwrite EFB.
+
+Operational note: reduced `/init-diag.sh` on the SD rootfs from `sleep 20` to `sleep 10`
+before writing `/dmesg.txt`, so future boot/test cycles should produce the saved log about
+10 seconds sooner.  This edit was made directly on `/media/anolis/WII-LINUX-NGX1`; it is
+not part of the kernel repo image.
+
 ---
 
 ## Known pitfalls
