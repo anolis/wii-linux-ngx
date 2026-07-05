@@ -1840,6 +1840,39 @@ frame 3: copy EFB to XFB; then CPU-fill XFB green
 - frame 1 not green: the assumed copy-clear EFB seed path is not actually controlled in this
   build, so debug copy-clear/copy timing before chasing primitive state.
 
+Result: frame 1 was not green, so the one-shot copy-clear seed assumption is invalid in
+the current code path:
+
+```
+gcn-gx: f0 diag=clear-green-f0-copy-f1-draw-white-f2-copy-f3 xfb0=216c698c xfb1=2c7b7d9f xfbc=a08e3b66
+gcnfb: f0 post-gx-pre-cpu-fill fb0=216c698c fb1=2c7b7d9f fbc=a08e3b66
+gcnfb: f0 cpu-fill-green skipped
+gcn-gx: f1 diag=clear-green-f0-copy-f1-draw-white-f2-copy-f3 xfb0=ad22c95e xfb1=ad269152 xfbc=7e417e30
+gcnfb: f1 post-gx-pre-cpu-fill fb0=ad22c95e fb1=ad269152 fbc=7e417e30
+gcn-gx: f2 diag=clear-green-f0-copy-f1-draw-white-f2-copy-f3 xfb0=a52ba515 xfb1=a52ba515 xfbc=a52ba515
+gcn-gx: f3 diag=clear-green-f0-copy-f1-draw-white-f2-copy-f3 xfb0=ad22c95e xfb1=ad269152 xfbc=7e427531
+```
+
+Frame 2 is CPU fallback green, not GX primitive output.  Frame 3 returns to the same
+green-ish/noisy copy signature as frame 1.  Do not use one-shot copy-clear as an EFB seed.
+
+Current diagnostic retests the historical solid-colour path directly:
+
+```
+frames 0-3: gx_set_copy_clear_rgb(0,255,0) + GX copy with clear=true
+later frames: no GX submit; CPU green fallback only
+```
+
+The key distinction from the failed four-phase test is that every early frame uses
+`clear=true`, matching the old diagnostic that visually produced solid red/green/blue.
+
+- f1/f2/f3 pre-CPU samples become `a52ba515` or otherwise uniform green: repeated
+  `clear=true` copies are a special working path; `clear=false` copy after clear is the
+  suspect.
+- f1/f2/f3 remain the same noisy signatures: the historical copy-clear colour result is not
+  reproducible under the current runtime/logging setup, and primitive tests need a different
+  controlled XFB/EFB baseline.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This

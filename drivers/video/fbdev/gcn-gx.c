@@ -1122,32 +1122,16 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_current_frame = phase;
 
 	/*
-	 * DIAGNOSTIC: seed EFB with copy-clear, then test whether a later direct
-	 * white primitive can overwrite that controlled EFB colour.
-	 *
-	 * Frame 0 copies stale EFB to XFB and clears EFB to green afterward.
-	 * Frame 1 copies the seeded green EFB to XFB.
-	 * Frame 2 draws a direct white primitive into EFB only.
-	 * Frame 3 copies EFB to XFB again; green means primitive writes failed,
-	 * white means the direct primitive path finally reached EFB.
+	 * DIAGNOSTIC: reproduce the historical solid-colour copy-clear path under
+	 * the current gcnfb pre-CPU-fill sampling setup.  The previous one-shot
+	 * seed test proved that clear=true followed by a later clear=false copy did
+	 * not produce green; this checks whether repeated clear=true copies are the
+	 * special case that produced visible red/green/blue earlier.
 	 */
-	if (phase == 0) {
+	if (phase < 4) {
 		fifo_pos = 0;
 		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
 		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
-		gx_submit_cmds();
-	} else if (phase == 1) {
-		fifo_pos = 0;
-		gx_copy_efb_to_xfb(xfb_phys, width, height, false);
-		gx_submit_cmds();
-	} else if (phase == 2) {
-		fifo_pos = 0;
-		gx_setup_vertex_color_state(width, height);
-		gx_draw_color_quad(width, height, 0xff, 0xff, 0xff);
-		gx_submit_cmds();
-	} else if (phase == 3) {
-		fifo_pos = 0;
-		gx_copy_efb_to_xfb(xfb_phys, width, height, false);
 		gx_submit_cmds();
 	}
 
@@ -1160,7 +1144,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		const u32 *xv = (const u32 *)__va(xfb_phys);
 		u32 center_off = (u32)(height / 2) * (width / 2) + (width / 4);
 
-		pr_info("gcn-gx: f%u diag=clear-green-f0-copy-f1-draw-white-f2-copy-f3 xfb0=%08x xfb1=%08x xfbc=%08x\n",
+		pr_info("gcn-gx: f%u diag=repeated-green-copy-clear xfb0=%08x xfb1=%08x xfbc=%08x\n",
 			phase, xv[0], xv[1], xv[center_off]);
 	}
 }
