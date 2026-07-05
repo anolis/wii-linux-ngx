@@ -2,6 +2,40 @@
 
 This report summarises the current state of the direct GX framebuffer acceleration work in `wii-linux-ngx`.  It is updated in place each session.
 
+## Current update - 2026-07-05
+
+Current diagnostic focus: isolate GX display-copy semantics while keeping the VI
+output visually stable with the CPU green fallback in `gcnfb.c`.
+
+Fresh `dmesg.txt` from the previous deployed image showed:
+
+```text
+gcn-gx: f0 diag=no-submit xfb0=26835780 xfb1=10752387 xfbc=1a7d1093
+gcnfb: f0 post-gx-pre-cpu-fill fb0=26835780 fb1=10752387 fbc=1a7d1093
+gcnfb: f0 cpu-fill-green pattern=a52ba515
+gcnfb: f0 post-cpu-fill fb0=a52ba515 fb1=a52ba515 fbc=a52ba515
+gcn-gx: f1 diag=no-submit xfb0=a52ba515 xfb1=a52ba515 xfbc=a52ba515
+```
+
+Interpretation: the CPU-visible `fb_mem` mapping and VI scanout are good.  The
+frame-0 GX copy was not green before the CPU fallback because `GX_CopyDisp` with
+`clear=true` copies the old EFB contents into XFB first, then clears EFB after
+the copy.  The old assumption that copy-clear immediately writes the clear color
+to XFB was wrong.
+
+Current test in `gcn_gx_blit_fb_rgb565()`:
+
+1. Frame 0: submit `gx_set_copy_clear_rgb(0, 255, 0)` plus
+   `gx_copy_efb_to_xfb(clear=true)`.
+2. Frame 0 immediately after that: submit a second
+   `gx_copy_efb_to_xfb(clear=false)`.
+3. `gcnfb.c` samples `fb_mem` as `post-gx-pre-cpu-fill`, then CPU-fills green
+   as a stable visual fallback.
+
+Expected result: if the second copy reports `post-gx-pre-cpu-fill` as
+`a52ba515`, then the EFB clear and EFB-to-XFB copy path are working and the
+previous stale/noisy first frame was purely copy-clear ordering.
+
 ## Goal
 
 Replace the per-vsync software RGB565 to VI/XFB conversion in `drivers/video/fbdev/gcnfb.c` with a GX hardware path:

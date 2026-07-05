@@ -1129,30 +1129,34 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_current_frame = phase;
 
 	/*
-	 * DIAGNOSTIC: seed EFB/XFB with the proven green copy-clear only once.
-	 * Re-clearing every frame can mask a primitive that reaches EFB late or
-	 * out of order relative to the following copy.  After frame 0, the only
-	 * commands submitted are the constant-white primitive and final copy.
+	 * DIAGNOSTIC: prove copy-clear ordering. GX_CopyDisp(clear=true) copies
+	 * the current EFB to XFB first, then clears the EFB afterward. Submit a
+	 * second copy without clear so the post-GX CPU sample can tell whether
+	 * the green EFB clear actually becomes green XFB data.
 	 */
 	if (phase == 0) {
 		fifo_pos = 0;
 		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
 		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
 		gx_submit_cmds();
+
+		fifo_pos = 0;
+		gx_copy_efb_to_xfb(xfb_phys, width, height, false);
+		gx_submit_cmds();
 	}
 
 	/*
-	 * DIAGNOSTIC: no GX submits after the one-shot green seed.  If noise
-	 * still develops, the visible corruption is outside our repeated GX
-	 * command stream.  If the screen stays green, repeated EFB->XFB copy is
-	 * reading unstable/stale EFB contents.
+	 * DIAGNOSTIC: no GX submits after frame 0.  If frame 0 post-GX samples
+	 * green before the CPU fallback, the EFB clear and display copy are
+	 * both working and the earlier stale/noisy frame was only copy-clear
+	 * ordering.
 	 */
 	/* Diagnostic: log tex and XFB content for frames 0-3 and at color start */
 	if (phase < 4 || phase == 360) {
 		const u32 *xv = (const u32 *)__va(xfb_phys);
 		u32 center_off = (u32)(height / 2) * (width / 2) + (width / 4);
 
-		pr_info("gcn-gx: f%u diag=no-submit xfb0=%08x xfb1=%08x xfbc=%08x\n",
+		pr_info("gcn-gx: f%u diag=clear-then-copy xfb0=%08x xfb1=%08x xfbc=%08x\n",
 			phase, xv[0], xv[1], xv[center_off]);
 	}
 }
