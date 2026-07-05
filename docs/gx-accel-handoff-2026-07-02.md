@@ -1054,6 +1054,31 @@ Deployed image `1a8c2b1f75a02b1140975b9d5689b5719c58d86f231608ea5de6b5dd3ab56041
 to `/media/anolis/BOOTWII/gumboot/zImage.ngx` after the card reappeared as `/dev/sdd1`
 (`BOOTWII`) and `/dev/sdd2` (`WII-LINUX-NGX`).  Awaiting hardware result.
 
+Result: **green again**. Fresh dmesg:
+
+```
+f0   pre/post: pos=480 RDoff=WToff=01e0, xfbc=72487238
+f360 pre/post: pos=480 RDoff=WToff=01e0, xfbc=72487238
+```
+
+The centre XFB sample is stable green and the FIFO drains completely.  This rules out
+direct CLR0 parsing, colour-channel state, and raster-colour TEV input as the sole cause:
+even position-only vertices with zero colour channels and constant-white TEV do not
+overwrite the green EFB pre-clear.
+
+Next test keeps the same position-only / zero-colour-channel / constant-white TEV state,
+but changes the primitive from `GX_QUADS` (4 vertices) to `GX_TRIANGLES` (two triangles,
+6 vertices covering the same rectangle).
+
+- white: quad primitive assembly was the issue; use triangles for the eventual blit.
+- green: primitives still produce no visible EFB writes; focus on viewport/projection,
+  scissor/clip, cull/front-face, or PE/raster state.
+
+Deployed image `0b3b81e92ffad549535fa9cf7711b8e6806866abc7239d5c898559ddb11e8942`
+contains this `GX_TRIANGLES` primitive diagnostic.  Plain `cp` was attempted first, but
+BOOTWII was mounted read-only; deployment required a one-time `pkexec mount -o remount,rw`
+followed by the same copy/sync/checksum flow.
+
 ---
 
 ## Known pitfalls
