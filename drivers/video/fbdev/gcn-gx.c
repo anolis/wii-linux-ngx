@@ -754,10 +754,10 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	wg_f32_bits(F32_ZERO);
 	gx_wr32be(1);
 
-		/* VCD/VAT: direct XY position only; no CLR0 payload. */
-		gx_load_cp_reg(0x50, 0x0200);
-		gx_load_cp_reg(0x60, 0x0000);
-		gx_load_cp_reg(0x70, 0x40000008);
+	/* VCD/VAT: direct XYZ position only; no CLR0 payload. */
+	gx_load_cp_reg(0x50, 0x0200);
+	gx_load_cp_reg(0x60, 0x0000);
+	gx_load_cp_reg(0x70, 0x40000009);
 	gx_load_cp_reg(0x80, 0x80000000);
 	gx_load_cp_reg(0x90, 0x00000000);
 }
@@ -866,14 +866,14 @@ static void gx_draw_pos_quad(u16 width, u16 height)
 	gx_wr16be(6);
 
 	/* Huge clip-space triangle: covers the viewport after identity ortho. */
-	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); /* (-4, -4) */
-	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); /* ( 4, -4) */
-	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); /* ( 0,  4) */
+	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); wg_f32_bits(F32_ZERO);
 
 	/* Same triangle, opposite winding, to defeat any stale/hidden cull state. */
-	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); /* (-4, -4) */
-	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); /* ( 0,  4) */
-	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); /* ( 4, -4) */
+	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO);
 }
 
 static void gx_draw_color_quad(u16 width, u16 height, u8 r, u8 g, u8 b)

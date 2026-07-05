@@ -1171,6 +1171,28 @@ but emits the triangle twice with opposite winding in the same draw call (6 vert
 Deployed image `0f924bd08b7928dca2d8802ecda5df392724e4ab36789e85878c2b91335fdd1e`
 contains this opposite-winding diagnostic.  Awaiting hardware result.
 
+Result: **green still**. Fresh dmesg:
+
+```
+f0   pre/post: pos=480 RDoff=WToff=01e0, xfbc=72487238
+f360 pre/post: pos=480 RDoff=WToff=01e0, xfbc=72487238
+```
+
+Drawing both windings in the same command stream did not change the outcome.  This rules
+out a simple hidden/stale cull or front-face state rejecting the triangle winding.
+
+Next test changes the position vertex format from XY to XYZ and sends `z=0` for every
+vertex, while keeping the same two opposite-winding oversized triangles.  This checks
+whether the XF/raster path is silently unhappy with 2-component positions despite the VAT
+encoding.
+
+- white: the raster path requires/works with XYZ positions in this setup.
+- green: position component count is not the blocker; move deeper into PE/raster state or
+  untested XF/CP state.
+
+Deployed image `62e1ad060cf68d7ed0d709e0ddad75bbe5d05c88e0eb03795643193fac2f4611`
+contains this XYZ-position diagnostic.  Awaiting hardware result.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
