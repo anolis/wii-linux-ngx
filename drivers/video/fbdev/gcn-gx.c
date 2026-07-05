@@ -706,37 +706,15 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	 * invalid attenuation mode for a plain vertex-colour passthrough.
 	 */
 	/*
-	 * DIAGNOSTIC RESULT: initializing XF 0x100a/0x100c (ambient=BLACK,
-	 * material=WHITE) to GX_Init()'s own defaults did not fix the bug —
-	 * still black (xfbc=1f781f75, RGB≈(19,26,16), essentially unchanged
-	 * from the previous 157d157d≈(17,24,16)) — but the small non-zero
-	 * shift between the two tests, despite matsrc=GX_SRC_VTX supposedly
-	 * making these registers irrelevant, is a real clue: on this
-	 * hardware, "enable=GX_DISABLE" may not be a pure matsrc passthrough
-	 * as libogc's doc comment claims.
-	 *
-	 * DIAGNOSTIC: bypass that undocumented shortcut entirely by actually
-	 * enabling the lighting equation with zero lights and a white
-	 * ambient colour, so the hardware computes
-	 * matColor * (ambColor + 0 lights) = vertexColor * white = vertexColor
-	 * through the same code path real lit geometry would use, instead of
-	 * relying on the disabled-channel special case.
-	 *
-	 * libogc GX_SetChanCtrl(GX_COLOR0A0, GX_ENABLE, GX_SRC_REG,
-	 * GX_SRC_VTX, GX_LIGHTNULL, GX_DF_NONE, GX_AF_NONE) encoding:
-	 *   bit0  matsrc = 1 (GX_SRC_VTX)
-	 *   bit1  enable = 1 (lighting enabled, 0 lights via litmask=0)
-	 *   bit6  ambsrc = 0 (GX_SRC_REG — ambient colour register)
-	 *   bit10 "attn_fn>0" = 1 (GX_AF_NONE)
-	 * → 0x403.  Ambient colour register (XF 0x100a) set to WHITE
-	 * (0xFFFFFFFF) so the multiply is a no-op.
+	 * DIAGNOSTIC: return exactly to the known-black colour-channel path from
+	 * commit 1cf82d033072.  Later 0x403/ambient/material experiments are
+	 * removed here so this test can determine whether the old visible-write
+	 * baseline is still reproducible.
 	 */
 	gx_load_xf_reg(0x1008, 0x00000001);
 	gx_load_xf_reg(0x1009, 0x00000001);
-	gx_load_xf_reg(0x100e, 0x00000403);
-	gx_load_xf_reg(0x1010, 0x00000403);
-	gx_load_xf_reg(0x100a, 0xFFFFFFFF);	/* GX_SetChanAmbColor(COLOR0A0, WHITE) */
-	gx_load_xf_reg(0x100c, 0xFFFFFFFF);	/* GX_SetChanMatColor(COLOR0A0, WHITE) */
+	gx_load_xf_reg(0x100e, 0x00000401);
+	gx_load_xf_reg(0x1010, 0x00000401);
 	gx_load_xf_reg(0x1005, 0);	/* GX_SetClipMode(GX_CLIP_ENABLE) */
 	gx_load_xf_reg(0x103f, 0);
 
@@ -1163,7 +1141,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
 	gx_copy_efb_to_xfb(xfb_phys, width, height, true);
 	gx_setup_vertex_color_state(width, height);
-	gx_draw_pos_quad(width, height, c[0], c[1], c[2]);
+	gx_draw_color_quad(width, height, c[0], c[1], c[2]);
 	if (phase == 360)
 		gx_log_next_submit = true;
 	gx_copy_efb_to_xfb(xfb_phys, width, height, false);

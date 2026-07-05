@@ -1244,6 +1244,31 @@ Deployed image `bd5ebef7c1295010f4453c3b8e925ae005782e432f4f6551b3082cf720877fe9
 contains this restored pixel-space direct-colour geometry baseline.  Awaiting hardware
 result.
 
+Result: **green still**. Fresh dmesg:
+
+```
+f0   pre/post: pos=480 RDoff=WToff=01e0, xfbc=72487238
+f360 pre/post: pos=480 RDoff=WToff=01e0, xfbc=72487238
+```
+
+Restoring the obvious pixel-space geometry baseline was not sufficient.  A direct diff
+against known-black commit `1cf82d033072` showed the remaining important mismatches:
+current code still used the later enabled-lighting channel control (`0x403`) plus
+ambient/material writes, and called the renamed position draw helper instead of the
+original `gx_draw_color_quad`.
+
+Next test restores the exact known-black colour path: XF chan0 colour/alpha control
+`0x401`, no ambient/material writes, and the original `gx_draw_color_quad()` call, while
+keeping the green pre-clear and current logging.
+
+- black/near-black: confirms the known-black baseline is reproducible; then bisect the
+  channel-control changes from there.
+- green: the missing difference is elsewhere in command submission or another state not
+  visible in the local setup diff; compare the full FIFO bytes against `1cf82d033072`.
+
+Deployed image `eeadda11112ebf963caf219adccbe7ed7b065a21df14c94024da969281b942e3`
+contains this exact known-black colour-path restore.  Awaiting hardware result.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
