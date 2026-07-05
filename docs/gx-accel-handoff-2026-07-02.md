@@ -1150,6 +1150,27 @@ write a raw full-range scissor (`BP 0x20 = 0`, `BP 0x21 = 0x7ff/0xfff`) and keep
 Deployed image `6985136a253ba3e3f1fd757ac3e02acb29567792313cf7b5f4565802aa6bbc60`
 contains this raw full-range scissor diagnostic.  Awaiting hardware result.
 
+Result: **green still**. Fresh dmesg:
+
+```
+f0   pre/post: pos=448 RDoff=WToff=01c0, xfbc=72487238
+f360 pre/post: pos=448 RDoff=WToff=01c0, xfbc=72487238
+```
+
+The raw full-range scissor did not change the outcome.  This rules out our computed
+scissor rectangle and the normal +342/scissor-offset convention as the cause of the
+primitive no-write path.
+
+Next test keeps the same full-range scissor and identity-projection oversized triangle,
+but emits the triangle twice with opposite winding in the same draw call (6 vertices total).
+
+- white: hidden/stale cull or front-face state was rejecting one winding.
+- green: cull/front-face is not the easy explanation; move deeper into PE/raster state or
+  vertex/XF state outside projection/scissor.
+
+Deployed image `0f924bd08b7928dca2d8802ecda5df392724e4ab36789e85878c2b91335fdd1e`
+contains this opposite-winding diagnostic.  Awaiting hardware result.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This

@@ -863,12 +863,17 @@ static void gx_draw_fullscreen_quad(u16 width, u16 height)
 static void gx_draw_pos_quad(u16 width, u16 height)
 {
 	gx_wr8(0x90);			/* GX_TRIANGLES | vtxfmt 0 */
-	gx_wr16be(3);
+	gx_wr16be(6);
 
 	/* Huge clip-space triangle: covers the viewport after identity ortho. */
 	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); /* (-4, -4) */
 	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); /* ( 4, -4) */
 	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); /* ( 0,  4) */
+
+	/* Same triangle, opposite winding, to defeat any stale/hidden cull state. */
+	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); /* (-4, -4) */
+	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); /* ( 0,  4) */
+	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); /* ( 4, -4) */
 }
 
 static void gx_draw_color_quad(u16 width, u16 height, u8 r, u8 g, u8 b)
