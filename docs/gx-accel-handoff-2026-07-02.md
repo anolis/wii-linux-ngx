@@ -977,8 +977,47 @@ set to WHITE (`0xFFFFFFFF`) so the multiply is a no-op; XF 0x100c
   vertex payload offset via the existing stall-dump logging).
 
 Deployed image `0e4239bff13586d754fe8363fe458452aec3aa818095d20ea56fa15ec6f22903`
-contains the enable=1/zero-lights/white-ambient diagnostic. Awaiting
-hardware result.
+contains the enable=1/zero-lights/white-ambient diagnostic.
+
+Result: **still black**. Fresh dmesg:
+
+```
+f0   vcol=ff0000 xfb0=b537ae6e xfb1=d888728f xfbc=1d791d77
+f360 vcol=0000ff xfb0=b537ae6e xfb1=d888728f xfbc=1d791d77
+```
+
+`xfbc=1d791d77` ≈ RGB(21,28,19) — essentially the same near-black as
+both previous tests (`157d157d`≈(17,24,16), `1f781f75`≈(19,26,16)).  Three
+completely different colour-channel configurations
+(`matsrc=VTX,enable=0` passthrough; `matsrc=REG,enable=0`; and
+`matsrc=VTX,enable=1` lit-with-zero-lights) have now all produced nearly
+identical near-black output regardless of the vertex colour.  That
+convergence across such different configurations is itself a strong
+signal: it is unlikely that three different, individually-correct (per
+libogc) channel setups would all coincidentally break the same way.  More
+likely, the colour-channel/rasterizer output is not the thing reaching
+the EFB at all, and something downstream (TEV, PE, or the copy) is
+involved, or the true bug is further upstream than the channel registers
+(e.g. vertex delivery itself).
+
+Next test bypasses the colour-channel/rasterizer stage entirely: change
+the TEV colour combiner's `d` input from `GX_CC_RASC` (rasterized colour,
+value 10) to `GX_CC_ONE` (hardware constant 1.0, value 12), independent
+of any channel or vertex state — `a=b=c=GX_CC_ZERO(15), d=GX_CC_ONE(12)`
+→ BP 0xC0 = `0xC008FFFC`.  This should render solid white if TEV/PE
+themselves are healthy, with zero dependency on the colour channel.
+
+- solid white: TEV/PE are fine; the bug is 100% isolated to
+  colour-channel/rasterizer colour generation upstream of TEV — focus
+  there exclusively (possibly a raster interpolator enable bit, or the
+  vertex CLR0 attribute genuinely never reaching the rasterizer despite
+  matching VAT/VCD bit layout).
+- still black/other: the bug is not in the colour channel at all; look at
+  TEV output stage config, PE writes, dst-alpha, or EFB→XFB copy
+  addressing/format for this specific (post-raster, non-clear) code path.
+
+Deployed image `c98af827a860f1daa31a829e5fd1ef328604aeec668f6142c53de3a19e183f4e`
+contains the CC_ONE TEV bypass diagnostic. Awaiting hardware result.
 
 ---
 

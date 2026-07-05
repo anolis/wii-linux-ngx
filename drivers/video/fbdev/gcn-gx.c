@@ -679,8 +679,22 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 		       ((yo + height - 1) & 0xfff));
 	gx_load_bp_reg(0x59000000);	/* GX_SetScissorBoxOffset(0, 0) */
 
-	/* TEV PASSCLR: output raster colour/alpha, no texture fetch. */
-	gx_load_bp_reg(0xC008FFFA);
+	/*
+	 * DIAGNOSTIC: three different colour-channel configurations
+	 * (matsrc=VTX passthrough, matsrc=REG, and lit-with-zero-lights) have
+	 * all produced nearly identical near-black output regardless of the
+	 * vertex colour.  Bypass the colour-channel/rasterizer stage entirely
+	 * to test whether the bug is really there or somewhere else in
+	 * TEV/PE: change the colour combiner's `d` input from GX_CC_RASC
+	 * (rasterized colour) to GX_CC_ONE (hardware constant, independent of
+	 * any channel/vertex state) — this should render solid white if
+	 * TEV/PE themselves are healthy.
+	 *   a=b=c=GX_CC_ZERO(15), d=GX_CC_ONE(12) → 0xFFFC.
+	 * If the screen is white: TEV/PE are fine, the bug is 100% isolated
+	 * to colour-channel/rasterizer colour generation.  If still black or
+	 * something else: the bug is downstream of the channel entirely.
+	 */
+	gx_load_bp_reg(0xC008FFFC);
 	gx_load_bp_reg(0xC108FFD0);
 	gx_load_bp_reg(0x25000000);
 
