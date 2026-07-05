@@ -27,14 +27,29 @@ Current test in `gcn_gx_blit_fb_rgb565()`:
 
 1. Frame 0: submit `gx_set_copy_clear_rgb(0, 255, 0)` plus
    `gx_copy_efb_to_xfb(clear=true)`.
-2. Frame 0 immediately after that: submit a second
-   `gx_copy_efb_to_xfb(clear=false)`.
-3. `gcnfb.c` samples `fb_mem` as `post-gx-pre-cpu-fill`, then CPU-fills green
-   as a stable visual fallback.
+2. `gcnfb.c` samples `fb_mem` as `post-gx-pre-cpu-fill`, then intentionally
+   skips the CPU green fallback on frame 0.
+3. Frame 1: submit `gx_copy_efb_to_xfb(clear=false)`.
+4. `gcnfb.c` samples `fb_mem` again, then resumes the CPU green fallback for
+   visual stability.
 
-Expected result: if the second copy reports `post-gx-pre-cpu-fill` as
-`a52ba515`, then the EFB clear and EFB-to-XFB copy path are working and the
-previous stale/noisy first frame was purely copy-clear ordering.
+Expected result: if frame 1 `post-gx-pre-cpu-fill` is `a52ba515`, then the
+EFB clear and EFB-to-XFB copy path are working across a VI frame.  If frame 1 is
+still stale/noisy, either the clear did not affect EFB as expected or the copy
+path is not reading the cleared EFB contents.
+
+Result from the immediate two-submit test that preceded this:
+
+```text
+gcn-gx: f0 diag=clear-then-copy xfb0=ad22ca5e xfb1=ad289152 xfbc=8040802e
+gcnfb: f0 post-gx-pre-cpu-fill fb0=ad22ca5e fb1=ad289152 fbc=8040802e
+gcnfb: f0 cpu-fill-green pattern=a52ba515
+gcn-gx: f1 diag=clear-then-copy xfb0=a52ba515 xfb1=a52ba515 xfbc=a52ba515
+```
+
+Interpretation: the immediate second copy did not observe the green clear.
+Later frames were green only because software filled XFB after frame 0, so the
+test was still ambiguous.
 
 ## Goal
 
