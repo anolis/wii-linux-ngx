@@ -934,8 +934,51 @@ initialized by adding both writes with GX_Init()'s own default values.
   config, dither, or a raster interpolator enable bit not yet identified).
 
 Deployed image `f940fac719275f6558776ce1539d786e76996e8f870ee08fc223b449caeaf977`
-contains both XF 0x100a/0x100c initialization writes. Awaiting hardware
-result.
+contains both XF 0x100a/0x100c initialization writes.
+
+Result: **still black**. Fresh dmesg:
+
+```
+f0   vcol=ff0000 xfb0=b1308271 xfb1=b653c078 xfbc=1f781f75
+f360 vcol=0000ff xfb0=b1308271 xfb1=b653c078 xfbc=1f781f75
+```
+
+`xfbc=1f781f75` decodes to roughly RGB(19,26,16) — essentially the same
+near-black as the previous test's `157d157d`≈(17,24,16).  Ambient/material
+register content is **not** the fix, but the small non-zero shift between
+these two otherwise-identical tests (ambient/material previously
+uninitialized garbage vs. now BLACK/WHITE) is a real, reproducible signal:
+if `matsrc=GX_SRC_VTX, enable=GX_DISABLE` were a pure hardware passthrough
+of the vertex colour as libogc's doc comment claims, XF 0x100a/0x100c
+content could not affect the output at all.  It measurably did (by a
+small amount), which means the "disabled channel" path on this specific
+hardware is not the simple passthrough the software API documents.
+
+Next test bypasses that undocumented shortcut entirely: explicitly enable
+lighting (`enable=1`) with zero lights (`litmask=GX_LIGHTNULL`) and a
+white ambient colour, so the hardware computes
+`matColor * (ambColor + 0 lights) = vertexColor * white = vertexColor`
+through the same code path real lit geometry uses, rather than the
+disabled-channel special case.
+
+`GX_SetChanCtrl(GX_COLOR0A0, GX_ENABLE, GX_SRC_REG, GX_SRC_VTX,
+GX_LIGHTNULL, GX_DF_NONE, GX_AF_NONE)` → register value `0x403`
+(`matsrc=1, enable=1, ambsrc=0(REG), attn_fn=NONE`).  XF 0x100a (ambient)
+set to WHITE (`0xFFFFFFFF`) so the multiply is a no-op; XF 0x100c
+(material) left at WHITE too (unused while `matsrc=GX_SRC_VTX`).
+
+- red/green/blue (tracking vcol): the disabled-channel passthrough path
+  was the actual hardware bug; going through the lit-with-zero-lights path
+  works correctly.
+- still black: rule out the channel-enable path entirely; the bug must be
+  downstream in TEV/PE (dst-alpha, dither, or an EFB write-mask register
+  not yet identified) or upstream in vertex delivery itself (re-examine
+  VCD/VAT dynamically, e.g. by dumping the actual FIFO bytes at the
+  vertex payload offset via the existing stall-dump logging).
+
+Deployed image `0e4239bff13586d754fe8363fe458452aec3aa818095d20ea56fa15ec6f22903`
+contains the enable=1/zero-lights/white-ambient diagnostic. Awaiting
+hardware result.
 
 ---
 

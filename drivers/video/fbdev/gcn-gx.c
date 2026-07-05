@@ -701,31 +701,36 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	 * invalid attenuation mode for a plain vertex-colour passthrough.
 	 */
 	/*
-	 * DIAGNOSTIC RESULT: matsrc=GX_SRC_REG with a hardcoded XF 0x100c
-	 * material colour reverted the screen to the clean, uniform "no
-	 * visible writes" green signature — the opposite of matsrc=GX_SRC_VTX,
-	 * which visibly disturbs the EFB.  GX_SRC_VTX is therefore reverted to
-	 * here.  The added centre-pixel xfb sample then showed the screen
-	 * interior is genuinely near-black (`xfbc=157d157d` decodes to
-	 * roughly RGB(17,24,16)) and constant regardless of the vertex colour
-	 * cycling red→blue between f0 and f360 — the channel output does not
-	 * track vertex colour at all.
+	 * DIAGNOSTIC RESULT: initializing XF 0x100a/0x100c (ambient=BLACK,
+	 * material=WHITE) to GX_Init()'s own defaults did not fix the bug —
+	 * still black (xfbc=1f781f75, RGB≈(19,26,16), essentially unchanged
+	 * from the previous 157d157d≈(17,24,16)) — but the small non-zero
+	 * shift between the two tests, despite matsrc=GX_SRC_VTX supposedly
+	 * making these registers irrelevant, is a real clue: on this
+	 * hardware, "enable=GX_DISABLE" may not be a pure matsrc passthrough
+	 * as libogc's doc comment claims.
 	 *
-	 * GX_Init() itself defensively initializes XF 0x100a (chan0 ambient
-	 * colour) and XF 0x100c (chan0 material colour) to BLACK/WHITE
-	 * (0x00000000 / 0xFFFFFFFF) even for its default matsrc=GX_SRC_VTX,
-	 * enable=GX_DISABLE channel — registers our driver has never written,
-	 * left instead at whatever mini left behind.  Per the GX_SetChanCtrl
-	 * doc these should be irrelevant when enable=0, but that is a software
-	 * API guarantee, not a verified hardware one.  Test whether real
-	 * silicon actually depends on them being sane by initializing both to
-	 * GX_Init()'s own defaults.
+	 * DIAGNOSTIC: bypass that undocumented shortcut entirely by actually
+	 * enabling the lighting equation with zero lights and a white
+	 * ambient colour, so the hardware computes
+	 * matColor * (ambColor + 0 lights) = vertexColor * white = vertexColor
+	 * through the same code path real lit geometry would use, instead of
+	 * relying on the disabled-channel special case.
+	 *
+	 * libogc GX_SetChanCtrl(GX_COLOR0A0, GX_ENABLE, GX_SRC_REG,
+	 * GX_SRC_VTX, GX_LIGHTNULL, GX_DF_NONE, GX_AF_NONE) encoding:
+	 *   bit0  matsrc = 1 (GX_SRC_VTX)
+	 *   bit1  enable = 1 (lighting enabled, 0 lights via litmask=0)
+	 *   bit6  ambsrc = 0 (GX_SRC_REG — ambient colour register)
+	 *   bit10 "attn_fn>0" = 1 (GX_AF_NONE)
+	 * → 0x403.  Ambient colour register (XF 0x100a) set to WHITE
+	 * (0xFFFFFFFF) so the multiply is a no-op.
 	 */
 	gx_load_xf_reg(0x1008, 0x00000001);
 	gx_load_xf_reg(0x1009, 0x00000001);
-	gx_load_xf_reg(0x100e, 0x00000401);
-	gx_load_xf_reg(0x1010, 0x00000401);
-	gx_load_xf_reg(0x100a, 0x00000000);	/* GX_SetChanAmbColor(COLOR0A0, BLACK) */
+	gx_load_xf_reg(0x100e, 0x00000403);
+	gx_load_xf_reg(0x1010, 0x00000403);
+	gx_load_xf_reg(0x100a, 0xFFFFFFFF);	/* GX_SetChanAmbColor(COLOR0A0, WHITE) */
 	gx_load_xf_reg(0x100c, 0xFFFFFFFF);	/* GX_SetChanMatColor(COLOR0A0, WHITE) */
 	gx_load_xf_reg(0x1005, 0);	/* GX_SetClipMode(GX_CLIP_ENABLE) */
 	gx_load_xf_reg(0x103f, 0);
