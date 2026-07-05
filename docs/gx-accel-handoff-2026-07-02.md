@@ -1956,6 +1956,34 @@ frame 2: clear=true green readout
   failure is earlier/lower than colour channels, likely primitive coverage, position
   transform, rasterization, or PE write state.
 
+Result: frame 2 did not become a clean white-derived output.  The centre sample remained
+the known GX-green signature while the leading words were mixed:
+
+```
+gcn-gx: f0 diag=green-clear-f0-const-white-f1-clear-read-f2 xfb0=658fe880 xfb1=a542cf89 xfbc=eb8691a0
+gcnfb: f0 post-gx-pre-cpu-fill fb0=658fe880 fb1=a542cf89 fbc=eb8691a0
+gcn-gx: f1 diag=green-clear-f0-const-white-f1-clear-read-f2 xfb0=658fe880 xfb1=a542cf89 xfbc=eb8691a0
+gcnfb: f1 post-gx-pre-cpu-fill fb0=658fe880 fb1=a542cf89 fbc=eb8691a0
+gcn-gx: f2 diag=green-clear-f0-const-white-f1-clear-read-f2 xfb0=952ccf72 xfb1=7e5a7f8a xfbc=90369022
+gcnfb: f2 post-gx-pre-cpu-fill fb0=952ccf72 fb1=7e5a7f8a fbc=90369022
+```
+
+This rules out vertex colour/channel state as the main blocker.  Primitive output is still
+not reliably covering/writing EFB.
+
+Current diagnostic keeps constant-white TEV and the working `clear=true` readout but changes
+geometry/projection:
+
+```
+frame 0: clear=true green
+frame 1: position-only oversized clip-space triangles, both windings, identity projection
+frame 2: clear=true green readout
+```
+
+The goal is to remove pixel-space orthographic projection and stale front-face/cull winding
+as variables.  If frame 2 still reads GX green in the centre, focus on raster/PE write state
+rather than colour or projection setup.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
