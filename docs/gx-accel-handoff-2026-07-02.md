@@ -1528,6 +1528,29 @@ two-triangle primitive.  Expected result:
   sparse to see clearly at narrow coverage.
 - full-screen noise: the visible corruption is not governed by primitive scissor coverage.
 
+Result: **full-screen slightly large noise**, smaller than the first full-screen noise but not
+shaped into the narrow vertical stripe.  Fresh dmesg again showed clean FIFO drain through
+f360 and the same centre XFB signature as the half-screen scissor test:
+
+```
+f360 pre:  SR=0008 RD=0000 WT=0020 pos=32
+f360 post: SR=000c RDoff=0020 WToff=0020
+f360 diag=white xfb0=90369122 xfb1=90369022 xfbc=7e427531
+```
+
+This rules against primitive scissor coverage being the mechanism that shapes the visible
+noise.  Next diagnostic removes the primitive submit entirely after the one-shot green seed:
+
+```
+frame 0: copy-clear green
+all frames:
+  submit only final EFB->XFB copy, clear=false
+```
+
+- stays green: the primitive/state submit is the source of the noise.
+- develops noise anyway: repeated copy or EFB persistence is corrupting the output without
+  any primitive draw.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This

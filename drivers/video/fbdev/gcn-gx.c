@@ -1141,11 +1141,13 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		gx_submit_cmds();
 	}
 
-	fifo_pos = 0;
-	gx_setup_vertex_color_state(width, height);
-	gx_draw_pos_quad(width, height);
-	gx_submit_cmds();
-
+	/*
+	 * DIAGNOSTIC: no primitive submit after the one-shot green seed.
+	 * Re-copy the unchanged EFB every frame.  If noise still develops,
+	 * the corruption is in copy/EFB persistence rather than primitive
+	 * rasterization.  If the screen stays green, the primitive submit is
+	 * the source of the full-screen noise.
+	 */
 	fifo_pos = 0;
 	if (phase == 360)
 		gx_log_next_submit = true;
