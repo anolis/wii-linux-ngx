@@ -1128,6 +1128,28 @@ triangle: `(-4,-4)`, `(4,-4)`, `(0,4)`.
 Deployed image `e0e8c2e19e89f943946e2005be9791994c1f99c11af8ebae6ff7daa522477e58`
 contains this identity-projection oversized-triangle diagnostic.  Awaiting hardware result.
 
+Result: **green still**. Fresh dmesg:
+
+```
+f0   pre/post: pos=448 RDoff=WToff=01c0, xfbc=72487238
+f360 pre/post: pos=448 RDoff=WToff=01c0, xfbc=72487238
+```
+
+The identity-projection oversized triangle drained fully and still did not overwrite the
+green pre-clear.  This rules out the pixel-space orthographic projection constants and
+ordinary rectangle edge coverage as the immediate cause.
+
+Next test changes only scissor setup in the active constant-white primitive diagnostic:
+instead of programming a screen-sized scissor using GX's normal `+342` offset convention,
+write a raw full-range scissor (`BP 0x20 = 0`, `BP 0x21 = 0x7ff/0xfff`) and keep
+`BP 0x59` scissor-box offset at zero.
+
+- white: computed scissor or scissor offset was clipping all primitive pixels.
+- green: scissor is not the reason primitives fail to write EFB.
+
+Deployed image `6985136a253ba3e3f1fd757ac3e02acb29567792313cf7b5f4565802aa6bbc60`
+contains this raw full-range scissor diagnostic.  Awaiting hardware result.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This

@@ -659,8 +659,6 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 
 static void gx_setup_vertex_color_state(u16 width, u16 height)
 {
-	u32 xo, yo;
-
 	gx_load_bp_reg(0x40000000);	/* Z disabled */
 	gx_load_bp_reg(0x41000018);	/* colour/alpha update enabled */
 	gx_load_bp_reg(0x43000040);	/* RGB8/Z24 EFB, linear Z, zcomp before tex */
@@ -671,12 +669,9 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	/* genMode: 0 texgens, 0 colour channels, 1 TEV stage */
 	gx_load_bp_reg(0x00000000);
 
-	xo = 0x156;
-	yo = 0x156;
-	gx_load_bp_reg(0x20000000 | ((xo & 0x7ff) << 12) | (yo & 0x7ff));
-	gx_load_bp_reg(0x21000000 |
-		       (((xo + width  - 1) & 0x7ff) << 12) |
-		       ((yo + height - 1) & 0xfff));
+	/* DIAGNOSTIC: raw full-range scissor, bypass GX's +342 screen offset. */
+	gx_load_bp_reg(0x20000000);
+	gx_load_bp_reg(0x21000000 | (0x7ff << 12) | 0xfff);
 	gx_load_bp_reg(0x59000000);	/* GX_SetScissorBoxOffset(0, 0) */
 
 		/*
