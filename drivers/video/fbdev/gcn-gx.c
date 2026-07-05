@@ -1122,21 +1122,25 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_current_frame = phase;
 
 	/*
-	 * DIAGNOSTIC: bypass copy-clear entirely. Draw a direct RGBA8 green
-	 * fullscreen primitive into EFB, then copy EFB to XFB. If the color
-	 * channel, TEV, PE primitive writes, and display copy are working,
-	 * gcnfb's post-GX sample should change before the CPU green fallback.
+	 * DIAGNOSTIC: split primitive and copy across VI frames. Frame 0 draws
+	 * a direct RGBA8 green fullscreen primitive into EFB only. gcnfb skips
+	 * the CPU fallback on frame 0. Frame 1 copies EFB to XFB. If primitive
+	 * writes are merely late relative to same-FIFO copy, frame 1 should
+	 * show the green primitive before the CPU fallback touches XFB.
 	 */
 	if (phase == 0) {
 		fifo_pos = 0;
 		gx_setup_vertex_color_state(width, height);
 		gx_draw_color_quad(width, height, 0x00, 0xff, 0x00);
+		gx_submit_cmds();
+	} else if (phase == 1) {
+		fifo_pos = 0;
 		gx_copy_efb_to_xfb(xfb_phys, width, height, false);
 		gx_submit_cmds();
 	}
 
 	/*
-	 * DIAGNOSTIC: no GX submits after frame 0. Later green samples are from
+	 * DIAGNOSTIC: no GX submits after frame 1. Later green samples are from
 	 * the software fallback and only prove the VI/XFB path remains alive.
 	 */
 	/* Diagnostic: log tex and XFB content for frames 0-3 and at color start */
@@ -1144,7 +1148,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		const u32 *xv = (const u32 *)__va(xfb_phys);
 		u32 center_off = (u32)(height / 2) * (width / 2) + (width / 4);
 
-		pr_info("gcn-gx: f%u diag=direct-green-copy xfb0=%08x xfb1=%08x xfbc=%08x\n",
+		pr_info("gcn-gx: f%u diag=draw-f0-copy-f1 xfb0=%08x xfb1=%08x xfbc=%08x\n",
 			phase, xv[0], xv[1], xv[center_off]);
 	}
 }

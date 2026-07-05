@@ -1431,6 +1431,10 @@ static void vi_gx_then_cpu_fill_green_diag(struct vi_ctl *ctl)
 	gcn_gx_blit_fb_rgb565(vfb_mem, (u32)gx_fb_start,
 			      info->var.xres, info->var.yres);
 	vi_log_fbmem_sample(ctl, "post-gx-pre-cpu-fill", frame);
+	if (frame == 0) {
+		pr_info("gcnfb: f%u cpu-fill-green skipped\n", frame);
+		return;
+	}
 	vi_fill_yuyv_green_diag(ctl, frame);
 }
 

@@ -57,19 +57,34 @@ fallback.
 
 Current test in `gcn_gx_blit_fb_rgb565()`:
 
+Latest result from the same-frame direct-green draw+copy test:
+
+```text
+gcn-gx: f0 pre: SR=0008 RD=0000 WT=01a0 pos=416
+gcn-gx: f0 post: SR=000c RDoff=01a0 WToff=01a0
+gcn-gx: f0 diag=direct-green-copy xfb0=168d2e77 xfb1=10753e83 xfbc=1a7d1088
+gcnfb: f0 post-gx-pre-cpu-fill fb0=168d2e77 fb1=10753e83 fbc=1a7d1088
+gcnfb: f0 cpu-fill-green pattern=a52ba515
+```
+
+Interpretation: direct vertex colour did not produce controlled XFB output when
+the primitive and copy were submitted in the same FIFO.
+
+Current test in `gcn_gx_blit_fb_rgb565()`:
+
 1. Frame 0: configure direct vertex colour: `genMode` one colour channel,
    TEV `d=RASC`, ras channel `GX_COLOR0A0`, `XF 0x1008/0x1009 = 1`,
    `VCD_LO=0x2200`, and `VAT0=0x40016008`.
-2. Draw a full-screen direct RGBA8 green quad into EFB.  This intentionally
-   avoids copy-clear, TMU fetches, and XF texcoord output.
-3. Copy EFB to XFB with `clear=false`.
-4. `gcnfb.c` samples `fb_mem` as `post-gx-pre-cpu-fill`, then CPU-fills green
-   for visual stability.
+2. Draw a full-screen direct RGBA8 green quad into EFB, but do not copy yet.
+3. `gcnfb.c` samples `fb_mem`, then intentionally skips the CPU fallback on
+   frame 0 so software does not touch XFB/EFB-visible contents.
+4. Frame 1: submit only `gx_copy_efb_to_xfb(clear=false)`, then sample before
+   resuming the CPU green fallback.
 
-Expected result: frame 0 `post-gx-pre-cpu-fill` should change to a uniform
-green-derived YUYV value if vertex colour, TEV, PE primitive writes, and display
-copy are working.  If it remains stale/noisy, the current primitive path still
-is not producing controlled EFB contents.
+Expected result: frame 1 `post-gx-pre-cpu-fill` should change to a uniform
+green-derived YUYV value if primitive writes are merely late relative to
+same-FIFO copy.  If frame 1 remains stale/noisy, ordinary primitive writes still
+are not producing controlled EFB contents under the current state.
 
 Previous test in `gcn_gx_blit_fb_rgb565()`:
 
