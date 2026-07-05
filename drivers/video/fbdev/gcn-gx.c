@@ -1122,20 +1122,37 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_current_frame = phase;
 
 	/*
-	 * DIAGNOSTIC: no-submit control for the split primitive tests. Frame 0
-	 * deliberately submits no GX commands while gcnfb skips the CPU fallback.
-	 * If XFB still reads back as 00800080, the previous frame-0 black result
-	 * was just initial XFB state, not evidence that primitives reached EFB.
-	 * Frame 1 copies whatever EFB already contains for a baseline sample.
+	 * DIAGNOSTIC: seed EFB with copy-clear, then test whether a later direct
+	 * white primitive can overwrite that controlled EFB colour.
+	 *
+	 * Frame 0 copies stale EFB to XFB and clears EFB to green afterward.
+	 * Frame 1 copies the seeded green EFB to XFB.
+	 * Frame 2 draws a direct white primitive into EFB only.
+	 * Frame 3 copies EFB to XFB again; green means primitive writes failed,
+	 * white means the direct primitive path finally reached EFB.
 	 */
-	if (phase == 1) {
+	if (phase == 0) {
+		fifo_pos = 0;
+		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
+		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
+		gx_submit_cmds();
+	} else if (phase == 1) {
+		fifo_pos = 0;
+		gx_copy_efb_to_xfb(xfb_phys, width, height, false);
+		gx_submit_cmds();
+	} else if (phase == 2) {
+		fifo_pos = 0;
+		gx_setup_vertex_color_state(width, height);
+		gx_draw_color_quad(width, height, 0xff, 0xff, 0xff);
+		gx_submit_cmds();
+	} else if (phase == 3) {
 		fifo_pos = 0;
 		gx_copy_efb_to_xfb(xfb_phys, width, height, false);
 		gx_submit_cmds();
 	}
 
 	/*
-	 * DIAGNOSTIC: no GX submits after frame 1. Later green samples are from
+	 * DIAGNOSTIC: no GX submits after frame 3. Later green samples are from
 	 * the software fallback and only prove the VI/XFB path remains alive.
 	 */
 	/* Diagnostic: log tex and XFB content for frames 0-3 and at color start */
@@ -1143,7 +1160,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		const u32 *xv = (const u32 *)__va(xfb_phys);
 		u32 center_off = (u32)(height / 2) * (width / 2) + (width / 4);
 
-		pr_info("gcn-gx: f%u diag=no-submit-f0-copy-f1 xfb0=%08x xfb1=%08x xfbc=%08x\n",
+		pr_info("gcn-gx: f%u diag=clear-green-f0-copy-f1-draw-white-f2-copy-f3 xfb0=%08x xfb1=%08x xfbc=%08x\n",
 			phase, xv[0], xv[1], xv[center_off]);
 	}
 }

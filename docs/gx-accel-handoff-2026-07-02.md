@@ -1808,6 +1808,38 @@ frame 1: copy whatever EFB already contains to XFB, then resume CPU green fill
   the uniform black sample even though colour was not correct.
 - frame 1 gives the baseline EFB->XFB copy result without any frame-0 primitive.
 
+Result: visual output was stable green from the CPU fallback, and the frame-0 no-submit
+sample was still `00800080`:
+
+```
+gcn-gx: f0 diag=no-submit-f0-copy-f1 xfb0=00800080 xfb1=00800080 xfbc=00800080
+gcnfb: f0 post-gx-pre-cpu-fill fb0=00800080 fb1=00800080 fbc=00800080
+gcnfb: f0 cpu-fill-green skipped
+gcn-gx: f1 diag=no-submit-f0-copy-f1 xfb0=b497eb3a xfb1=d55e8677 xfbc=a682d382
+gcnfb: f1 post-gx-pre-cpu-fill fb0=b497eb3a fb1=d55e8677 fbc=a682d382
+gcnfb: f1 post-cpu-fill fb0=a52ba515 fb1=a52ba515 fbc=a52ba515
+```
+
+This proves the previous split-primitive frame-0 black value was baseline XFB/current scanout
+state, not evidence that primitive output reached EFB.  Frame 1 remains a stale/noisy
+baseline copy from EFB with no primitive.
+
+Current diagnostic is a four-phase differential EFB test:
+
+```
+frame 0: GX copy with clear=true after setting copy-clear colour to green; gcnfb skips CPU fill
+frame 1: copy seeded EFB to XFB; then CPU-fill XFB green
+frame 2: draw direct RGBA8 white primitive into EFB only; then CPU-fill XFB green
+frame 3: copy EFB to XFB; then CPU-fill XFB green
+```
+
+- frame 1 pre-CPU sample green and frame 3 pre-CPU sample green: EFB copy-clear seeding
+  works, but the direct primitive did not overwrite EFB.
+- frame 1 pre-CPU sample green and frame 3 pre-CPU sample white: direct primitive rendering
+  works; the remaining issue is likely state/order around the full textured path.
+- frame 1 not green: the assumed copy-clear EFB seed path is not actually controlled in this
+  build, so debug copy-clear/copy timing before chasing primitive state.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
