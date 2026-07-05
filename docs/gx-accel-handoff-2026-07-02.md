@@ -1573,6 +1573,25 @@ all later frames: no GX submit; only CPU-side XFB sample logging
 - develops noise: visible corruption is outside the repeated GX command stream, likely VI/XFB
   scanout, XFB memory overlap, or something else writing the XFB.
 
+Result: **vertical bars with noise**.  Fresh dmesg from the no-submit build showed the CPU
+readback of `__va(xfb_phys)` was completely stable from frame 0 through f360 even though the
+visible output was not:
+
+```
+f0   diag=no-submit xfb0=158d2e77 xfb1=10753e83 xfbc=1a7d1088
+f360 diag=no-submit xfb0=158d2e77 xfb1=10753e83 xfbc=1a7d1088
+```
+
+That means primitive commands and repeated copy commands are both unnecessary for the
+visible bars/noise.  Next diagnostic bypasses GX entirely in the RGB565 accelerated IRQ
+path and CPU-fills the actual `fb_mem` ioremap used by the known-good software transcode
+with a solid RGB565-green converted through `rgbrgb16toycbycr()`.
+
+- stable green: VI scanout and `fb_mem` are correct; the GX copy path was writing or exposing
+  the wrong XFB contents.
+- bars/noise: VI is not scanning the `fb_mem` address/stride/page we think, or something else
+  is changing VI scanout state after setup.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This

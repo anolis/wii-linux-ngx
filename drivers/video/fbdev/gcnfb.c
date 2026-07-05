@@ -1382,6 +1382,35 @@ static void vi_transcode_RGB565_diff(struct vi_ctl *ctl)
 	}
 }
 
+static void vi_fill_yuyv_green_diag(struct vi_ctl *ctl)
+{
+	static u32 frame_count;
+	struct fb_info *info = ctl->info;
+	u32 frame = frame_count++;
+	u32 pattern = rgbrgb16toycbycr(0x07e007e0);
+	u32 *dst = fb_mem;
+	unsigned int width = info->fix.line_length >> 2;
+	unsigned int height = info->var.yres;
+	unsigned int y;
+
+	for (y = 0; y < height; y++) {
+		unsigned int x;
+
+		for (x = 0; x < width; x++)
+			dst[x] = pattern;
+		dst += width;
+	}
+	mb();
+
+	if (frame < 4 || frame == 360) {
+		const u32 *xv = fb_mem;
+		u32 center_off = (u32)(height / 2) * width + (width / 2);
+
+		pr_info("gcnfb: f%u cpu-fill-green pattern=%08x xfb0=%08x xfb1=%08x xfbc=%08x\n",
+			frame, pattern, xv[0], xv[1], xv[center_off]);
+	}
+}
+
 static void vi_transcode_RGB888(struct vi_ctl *ctl)
 {
 	/* Copy and convert contents of virtual framebuffer,
@@ -1474,15 +1503,13 @@ static irqreturn_t vi_irq_handler(int irq, void *dev)
 		switch (vfb_format) {
 			case V4L2_PIX_FMT_YUYV:
 				/* do nothing */
-			break;
-			case V4L2_PIX_FMT_RGB565:
-				if (gx_accel_ready)
-					gcn_gx_blit_fb_rgb565(vfb_mem, (u32)gx_fb_start,
-							      info->var.xres,
-							      info->var.yres);
-				else
-					vi_transcode_RGB565(ctl);
 				break;
+				case V4L2_PIX_FMT_RGB565:
+					if (gx_accel_ready)
+						vi_fill_yuyv_green_diag(ctl);
+					else
+						vi_transcode_RGB565(ctl);
+					break;
 			case PIX_FMT_RGB888:
 				if (gx_accel_ready)
 					gcn_gx_blit_fb_rgb888(vfb_mem, (u32)gx_fb_start,
