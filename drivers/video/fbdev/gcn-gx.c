@@ -657,7 +657,7 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	gx_load_cp_reg(0x90, 0x00000000);
 }
 
-static void gx_setup_vertex_color_state(u16 width, u16 height)
+static void gx_setup_constant_white_state(u16 width, u16 height)
 {
 	u32 xo, yo;
 
@@ -668,8 +668,8 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_bp_reg(0x68000000);	/* GX_SetFieldMode(GX_FALSE, GX_FALSE) */
 	gx_load_bp_reg(0xF33F0000);	/* alpha test always passes */
 
-	/* genMode: 0 texgens, 1 colour channel, 1 TEV stage */
-	gx_load_bp_reg(0x00000010);
+	/* genMode: 0 texgens, 0 colour channels, 1 TEV stage */
+	gx_load_bp_reg(0x00000000);
 
 	/* Full-screen primitive coverage. */
 	xo = 0x156;
@@ -681,33 +681,18 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_bp_reg(0x59000000);	/* GX_SetScissorBoxOffset(0, 0) */
 
 	/*
-	 * DIAGNOSTIC: direct vertex colour. TEV PASSCLR:
-	 *   color = RASC (a=b=c=ZERO, d=RASC)
-	 *   alpha = RASA (a=b=c=ZERO, d=RASA)
-	 * No texture fetch, no XF texcoord output, no copy-clear dependency.
+	 * DIAGNOSTIC: no vertex-colour dependency.  TEV outputs constant
+	 * white from GX_CC_ONE with no raster colour and no texture fetch.
 	 */
-	gx_load_bp_reg(0xC008FFFA);	/* d = GX_CC_RASC */
-	gx_load_bp_reg(0xC108FFF5);	/* d = GX_CA_RASA */
-	gx_load_bp_reg(0x25000000);	/* raschan = GX_COLOR0A0, tex disabled */
+	gx_load_bp_reg(0xC008FFFC);	/* a=b=c=ZERO, d=GX_CC_ONE */
+	gx_load_bp_reg(0xC108FFF0);	/* alpha = ZERO */
+	gx_load_bp_reg(0x25000380);	/* raschan = GX_COLOR_NULL, tex disabled */
 
 	/*
-	 * XF: one colour channel, one direct colour, zero texcoords.
-	 *
-	 * XF 0x100e/0x1010 (chan0 colour/alpha control): value derived from
-	 * libogc GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG,
-	 * GX_SRC_VTX, GX_LIGHTNULL, GX_DF_NONE, GX_AF_NONE) — the exact call
-	 * GX_Init() itself makes for color0 by default.  Encoding:
-	 *   bit0     matsrc   = 1 (GX_SRC_VTX)
-	 *   bit1     enable   = 0 (lighting disabled)
-	 *   bit6     ambsrc   = 0 (GX_SRC_REG, unused since lighting is off)
-	 *   bit9     "(GX_AF_NONE-attn_fn)>0" = 0
-	 *   bit10    "attn_fn>0"              = 1
-	 * → 0x401.  The previous value 0x201 has bit9=1/bit10=0, which
-	 * encodes attn_fn=GX_AF_SPEC (specular) instead of GX_AF_NONE — an
-	 * invalid attenuation mode for a plain vertex-colour passthrough.
+	 * XF: zero colour channels and zero texcoord generators.
 	 */
-	gx_load_xf_reg(0x1008, 0x00000001);
-	gx_load_xf_reg(0x1009, 0x00000001);
+	gx_load_xf_reg(0x1008, 0x00000000);
+	gx_load_xf_reg(0x1009, 0x00000000);
 	gx_load_xf_reg(0x100e, 0x00000401);
 	gx_load_xf_reg(0x1010, 0x00000401);
 	gx_load_xf_reg(0x1005, 0);	/* GX_SetClipMode(GX_CLIP_ENABLE) */
@@ -732,10 +717,10 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	wg_f32_bits(F32_ZERO);
 	gx_wr32be(1);
 
-	/* VCD/VAT: direct XY position + direct RGBA8 color0. */
-	gx_load_cp_reg(0x50, 0x2200);
+	/* VCD/VAT: direct XY position only. */
+	gx_load_cp_reg(0x50, 0x0200);
 	gx_load_cp_reg(0x60, 0x0000);
-	gx_load_cp_reg(0x70, 0x40016008);
+	gx_load_cp_reg(0x70, 0x40000008);
 	gx_load_cp_reg(0x80, 0x80000000);
 	gx_load_cp_reg(0x90, 0x00000000);
 }
@@ -1126,7 +1111,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	 * clear=false copy that failed to observe a one-shot copy-clear seed.
 	 *
 	 * Frame 0: copy stale EFB to XFB, then clear EFB to green.
-	 * Frame 1: draw a direct white primitive into EFB only.
+	 * Frame 1: draw a constant-white primitive into EFB only.
 	 * Frame 2: copy EFB to XFB via clear=true, then clear EFB back to green.
 	 *
 	 * If primitive writes work, frame 2's pre-CPU sample should be white.  If
@@ -1139,8 +1124,8 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		gx_submit_cmds();
 	} else if (phase == 1) {
 		fifo_pos = 0;
-		gx_setup_vertex_color_state(width, height);
-		gx_draw_color_quad(width, height, 0xff, 0xff, 0xff);
+		gx_setup_constant_white_state(width, height);
+		gx_draw_pos_quad(width, height);
 		gx_submit_cmds();
 	} else if (phase == 2) {
 		fifo_pos = 0;
@@ -1158,7 +1143,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		const u32 *xv = (const u32 *)__va(xfb_phys);
 		u32 center_off = (u32)(height / 2) * (width / 2) + (width / 4);
 
-		pr_info("gcn-gx: f%u diag=green-clear-f0-draw-white-f1-clear-read-f2 xfb0=%08x xfb1=%08x xfbc=%08x\n",
+		pr_info("gcn-gx: f%u diag=green-clear-f0-const-white-f1-clear-read-f2 xfb0=%08x xfb1=%08x xfbc=%08x\n",
 			phase, xv[0], xv[1], xv[center_off]);
 	}
 }

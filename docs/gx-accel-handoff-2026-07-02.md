@@ -1927,6 +1927,35 @@ Interpretation:
 - frame 2 is stale/noisy: even the repeated `clear=true` readout depends on more state than
   expected; return to pure copy-clear colour cycling before testing primitives.
 
+Result: frame 2 read back the GX-green signature, not white:
+
+```
+gcn-gx: f0 diag=green-clear-f0-draw-white-f1-clear-read-f2 xfb0=178d2e76 xfb1=10792377 xfbc=1a7d1088
+gcnfb: f0 post-gx-pre-cpu-fill fb0=178d2e76 fb1=10792377 fbc=1a7d1088
+gcn-gx: f1 diag=green-clear-f0-draw-white-f1-clear-read-f2 xfb0=178d2e76 xfb1=10792377 xfbc=1a7d1088
+gcnfb: f1 post-gx-pre-cpu-fill fb0=178d2e76 fb1=10792377 fbc=1a7d1088
+gcn-gx: f2 diag=green-clear-f0-draw-white-f1-clear-read-f2 xfb0=90369122 xfb1=90369022 xfbc=7049703a
+gcnfb: f2 post-gx-pre-cpu-fill fb0=90369122 fb1=90369022 fbc=7049703a
+```
+
+This proves the direct RGBA8 vertex-colour primitive did not overwrite EFB, even when the
+result is read out through the working `clear=true` path.
+
+Current diagnostic removes vertex colour and channel state entirely while keeping the same
+working `clear=true` readout:
+
+```
+frame 0: clear=true green
+frame 1: position-only quad with 0 colour channels, raschan=GX_COLOR_NULL, TEV d=GX_CC_ONE
+frame 2: clear=true green readout
+```
+
+- frame 2 is white-derived YUV: primitive coverage/PE writes work; the direct colour/channel
+  path was the problem.
+- frame 2 remains GX green (`9036...`): even constant TEV output does not write EFB, so the
+  failure is earlier/lower than colour channels, likely primitive coverage, position
+  transform, rasterization, or PE write state.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
