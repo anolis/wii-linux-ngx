@@ -659,7 +659,7 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 
 static void gx_setup_vertex_color_state(u16 width, u16 height)
 {
-	u32 xo, yo, x1, y1, stripe_w;
+	u32 xo, yo;
 
 	gx_load_bp_reg(0x40000000);	/* Z disabled */
 	gx_load_bp_reg(0x41000018);	/* colour/alpha update enabled */
@@ -671,27 +671,19 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	/* genMode: 0 texgens, 0 colour channels, 1 TEV stage */
 	gx_load_bp_reg(0x00000000);
 
-	/*
-	 * DIAGNOSTIC: constrain raster output to a narrow centered vertical
-	 * stripe.  The previous half-screen scissor made the noise slightly
-	 * smaller but not clearly shaped; this makes the scissor discriminator
-	 * visually obvious while still covering the centre XFB sample.
-	 */
-	stripe_w = width >> 4;
-	xo = 0x156 + (width >> 1) - (stripe_w >> 1);
+	/* Full-screen primitive coverage. */
+	xo = 0x156;
 	yo = 0x156;
-	x1 = xo + stripe_w - 1;
-	y1 = yo + height - 1;
 	gx_load_bp_reg(0x20000000 | ((xo & 0x7ff) << 12) | (yo & 0x7ff));
 	gx_load_bp_reg(0x21000000 |
-		       ((x1 & 0x7ff) << 12) |
-		       (y1 & 0xfff));
+		       (((xo + width  - 1) & 0x7ff) << 12) |
+		       ((yo + height - 1) & 0xfff));
 	gx_load_bp_reg(0x59000000);	/* GX_SetScissorBoxOffset(0, 0) */
 
 	/*
-	 * DIAGNOSTIC: no vertex colour dependency.  With copy-clear isolated in
-	 * its own submit, render a constant-white TEV primitive to test primitive
-	 * coverage/PE writes without channel state.
+	 * DIAGNOSTIC: no vertex colour dependency.  Render a constant-white TEV
+	 * primitive to test primitive coverage and PE writes without TMU/XF
+	 * texcoord state or copy-clear side effects.
 	 */
 	gx_load_bp_reg(0xC008FFFC);	/* a=b=c=ZERO, d=ONE */
 	gx_load_bp_reg(0xC108FFF0);	/* alpha = ZERO */
@@ -1129,33 +1121,29 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_current_frame = phase;
 
 	/*
-	 * DIAGNOSTIC: separate copy-clear and follow-up copy by one VI frame.
-	 * GX_CopyDisp(clear=true) copies the current EFB to XFB first, then
-	 * clears EFB afterward.  Frame 1 copies without clear so gcnfb can
-	 * sample whether the frame-0 green EFB clear became XFB data.
+	 * DIAGNOSTIC: bypass copy-clear entirely. Draw a constant-white
+	 * fullscreen primitive into EFB, then copy EFB to XFB. If PE primitive
+	 * writes and display copy are working, gcnfb's post-GX sample should
+	 * change to a uniform non-stale value before the CPU green fallback.
 	 */
 	if (phase == 0) {
 		fifo_pos = 0;
-		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
-		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
-		gx_submit_cmds();
-	} else if (phase == 1) {
-		fifo_pos = 0;
+		gx_setup_vertex_color_state(width, height);
+		gx_draw_pos_quad(width, height);
 		gx_copy_efb_to_xfb(xfb_phys, width, height, false);
 		gx_submit_cmds();
 	}
 
 	/*
-	 * DIAGNOSTIC: no GX submits after frame 1.  gcnfb intentionally skips
-	 * the CPU green fallback on frame 0 so frame 1 cannot read back green
-	 * data left by software.
+	 * DIAGNOSTIC: no GX submits after frame 0. Later green samples are from
+	 * the software fallback and only prove the VI/XFB path remains alive.
 	 */
 	/* Diagnostic: log tex and XFB content for frames 0-3 and at color start */
 	if (phase < 4 || phase == 360) {
 		const u32 *xv = (const u32 *)__va(xfb_phys);
 		u32 center_off = (u32)(height / 2) * (width / 2) + (width / 4);
 
-		pr_info("gcn-gx: f%u diag=clear-f0-copy-f1 xfb0=%08x xfb1=%08x xfbc=%08x\n",
+		pr_info("gcn-gx: f%u diag=solid-primitive-copy xfb0=%08x xfb1=%08x xfbc=%08x\n",
 			phase, xv[0], xv[1], xv[center_off]);
 	}
 }

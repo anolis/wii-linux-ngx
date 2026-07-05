@@ -23,7 +23,38 @@ frame-0 GX copy was not green before the CPU fallback because `GX_CopyDisp` with
 the copy.  The old assumption that copy-clear immediately writes the clear color
 to XFB was wrong.
 
+Latest result from the frame-separated clear/copy test:
+
+```text
+gcn-gx: f0 diag=clear-f0-copy-f1 xfb0=178c2f76 xfb1=10743f83 xfbc=1a7d1088
+gcnfb: f0 post-gx-pre-cpu-fill fb0=178c2f76 fb1=10743f83 fbc=1a7d1088
+gcnfb: f0 cpu-fill-green skipped
+gcn-gx: f1 diag=clear-f0-copy-f1 xfb0=90369122 xfb1=90369022 xfbc=72487238
+gcnfb: f1 post-gx-pre-cpu-fill fb0=90369122 fb1=90369022 fbc=72487238
+gcnfb: f1 cpu-fill-green pattern=a52ba515
+```
+
+Interpretation: GX submissions drained and frame 1's copy changed XFB data, but
+it still did not produce the expected green `a52ba515`.  Later frames were green
+only from the CPU fallback.  This means copy-clear is not a useful EFB seed for
+the current diagnostic path.
+
 Current test in `gcn_gx_blit_fb_rgb565()`:
+
+1. Frame 0: configure the existing position-only primitive path for full-screen
+   coverage.
+2. Draw a constant-white TEV primitive into EFB.  This intentionally avoids
+   copy-clear, TMU fetches, and XF texcoord output.
+3. Copy EFB to XFB with `clear=false`.
+4. `gcnfb.c` samples `fb_mem` as `post-gx-pre-cpu-fill`, then CPU-fills green
+   for visual stability.
+
+Expected result: frame 0 `post-gx-pre-cpu-fill` should become a uniform
+primitive-derived value if PE primitive writes and display copy are working.  If
+it remains stale/noisy, the primitive path still is not producing controlled EFB
+contents.
+
+Previous test in `gcn_gx_blit_fb_rgb565()`:
 
 1. Frame 0: submit `gx_set_copy_clear_rgb(0, 255, 0)` plus
    `gx_copy_efb_to_xfb(clear=true)`.
