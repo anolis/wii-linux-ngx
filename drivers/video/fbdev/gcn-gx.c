@@ -671,12 +671,17 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	/* genMode: 0 texgens, 0 colour channels, 1 TEV stage */
 	gx_load_bp_reg(0x00000000);
 
-	xo = 0x156;
-	yo = 0x156;
+	/*
+	 * DIAGNOSTIC: constrain raster output to a centered box.  If the noisy
+	 * primitive output obeys this scissor, we have controlled rasterization
+	 * and can expand state from there.  GX adds 0x156 internally.
+	 */
+	xo = 0x156 + (width >> 2);
+	yo = 0x156 + (height >> 2);
 	gx_load_bp_reg(0x20000000 | ((xo & 0x7ff) << 12) | (yo & 0x7ff));
 	gx_load_bp_reg(0x21000000 |
-		       (((xo + width  - 1) & 0x7ff) << 12) |
-		       ((yo + height - 1) & 0xfff));
+		       (((xo + (width >> 1)  - 1) & 0x7ff) << 12) |
+		       ((yo + (height >> 1) - 1) & 0xfff));
 	gx_load_bp_reg(0x59000000);	/* GX_SetScissorBoxOffset(0, 0) */
 
 	/*
@@ -838,21 +843,24 @@ static void gx_draw_fullscreen_quad(u16 width, u16 height)
 
 static void gx_draw_pos_quad(u16 width, u16 height)
 {
+	u32 fw = f32_from_u16(width);
+	u32 fh = f32_from_u16(height);
+
 	/*
-	 * DIAGNOSTIC: avoid the pixel-space projection path.  Draw oversized
-	 * clip-space triangles against an identity orthographic projection, using
-	 * both windings to rule out stale cull/front-face state.
+	 * DIAGNOSTIC: draw the full pixel-space rectangle as two triangles.  The
+	 * scissor box above should limit any controlled primitive output to the
+	 * centered box.
 	 */
 	gx_wr8(0x90);			/* GX_TRIANGLES | vtxfmt 0 */
 	gx_wr16be(6);
 
-	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); /* (-4, -4) */
-	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); /* ( 4, -4) */
-	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); /* ( 0,  4) */
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(fw);       wg_f32_bits(F32_ZERO);
+	wg_f32_bits(fw);       wg_f32_bits(fh);
 
-	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); /* (-4, -4) */
-	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); /* ( 0,  4) */
-	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); /* ( 4, -4) */
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(fw);       wg_f32_bits(fh);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(fh);
 }
 
 static void gx_draw_color_quad(u16 width, u16 height, u8 r, u8 g, u8 b)

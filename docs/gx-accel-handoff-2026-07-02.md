@@ -1481,6 +1481,33 @@ also survive stale cull/front-face state.
 - green with noise: projection/coverage is not the main cause; continue toward PE state,
   scissor/field mask, or a missing low-level raster initialization bit.
 
+The clip-space image caused a no-HDMI/no-signal boot report.  Card checks showed no
+filesystem corruption: read-only `fsck.vfat` and `e2fsck -fn` both passed, boot files were
+present, and `zImage.ngx` matched the local image.  The SD was rolled back to commit
+`78706171323d` in a temporary worktree and deployed as checksum
+`772473dcdfb06786e3ba4be83b2caaa3867e87446c9b2b269e8b16dd85ee15fd`.
+
+Rollback result: **green and then larger than normal pixel noise**.  This confirms the
+card is bootable and the noise scale changes with primitive/projection setup.  That makes
+the noise more likely to be tied to raster/PE state than random card corruption.
+
+Next diagnostic asks whether the noisy output obeys a shape.  It returns to the booting
+pixel-space two-triangle rectangle setup, but shrinks the scissor to a centered half-width,
+half-height box:
+
+```
+frame 0: copy-clear green
+all frames:
+  submit A: constant-white pixel-space rectangle as two triangles, centered scissor box
+  submit B: final EFB->XFB copy, clear=false
+```
+
+- noise/white confined to the centered box: primitive rasterization is controllable; build
+  outward from this state.
+- noise still covers the whole screen: the visible noise is not obeying scissor/primitive
+  coverage and may be copy/PE side effect.
+- no noise: the noise depends on full-screen setup or edge coverage.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
