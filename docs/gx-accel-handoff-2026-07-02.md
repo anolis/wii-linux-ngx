@@ -1592,6 +1592,27 @@ with a solid RGB565-green converted through `rgbrgb16toycbycr()`.
 - bars/noise: VI is not scanning the `fb_mem` address/stride/page we think, or something else
   is changing VI scanout state after setup.
 
+Result: **stable green**.  The SD was pulled before the normal 20-second dmesg append, but
+the visual result is decisive: CPU-filling `fb_mem` from the DI1 path makes the display
+stable.  This proves VI scanout, the `fb_mem` ioremap, and the YUYV green pattern are good.
+
+Next diagnostic gives GX one chance to run the existing green copy-clear, samples the real
+`fb_mem` mapping immediately after that GX submit, then CPU-fills green so the visible output
+stays readable:
+
+```
+DI1:
+  gcn_gx_blit_fb_rgb565()  # frame 0 green copy-clear, later frames no-submit
+  log fb_mem sample as post-gx-pre-cpu-fill
+  CPU-fill fb_mem green
+  log fb_mem sample as post-cpu-fill
+```
+
+- `post-gx-pre-cpu-fill` is not green while `post-cpu-fill` is green: GX is not writing the
+  scanned XFB correctly.
+- both are green: the earlier bars were from not keeping `fb_mem` refreshed, or from reading
+  the wrong alias in gcn-gx diagnostics.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This

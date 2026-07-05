@@ -1382,11 +1382,24 @@ static void vi_transcode_RGB565_diff(struct vi_ctl *ctl)
 	}
 }
 
-static void vi_fill_yuyv_green_diag(struct vi_ctl *ctl)
+static void vi_log_fbmem_sample(struct vi_ctl *ctl, const char *tag, u32 frame)
 {
-	static u32 frame_count;
 	struct fb_info *info = ctl->info;
-	u32 frame = frame_count++;
+	unsigned int width = info->fix.line_length >> 2;
+	unsigned int height = info->var.yres;
+
+	if (frame < 4 || frame == 360) {
+		const u32 *xv = fb_mem;
+		u32 center_off = (u32)(height / 2) * width + (width / 2);
+
+		pr_info("gcnfb: f%u %s fb0=%08x fb1=%08x fbc=%08x\n",
+			frame, tag, xv[0], xv[1], xv[center_off]);
+	}
+}
+
+static void vi_fill_yuyv_green_diag(struct vi_ctl *ctl, u32 frame)
+{
+	struct fb_info *info = ctl->info;
 	u32 pattern = rgbrgb16toycbycr(0x07e007e0);
 	u32 *dst = fb_mem;
 	unsigned int width = info->fix.line_length >> 2;
@@ -1403,12 +1416,22 @@ static void vi_fill_yuyv_green_diag(struct vi_ctl *ctl)
 	mb();
 
 	if (frame < 4 || frame == 360) {
-		const u32 *xv = fb_mem;
-		u32 center_off = (u32)(height / 2) * width + (width / 2);
-
-		pr_info("gcnfb: f%u cpu-fill-green pattern=%08x xfb0=%08x xfb1=%08x xfbc=%08x\n",
-			frame, pattern, xv[0], xv[1], xv[center_off]);
+		pr_info("gcnfb: f%u cpu-fill-green pattern=%08x\n",
+			frame, pattern);
+		vi_log_fbmem_sample(ctl, "post-cpu-fill", frame);
 	}
+}
+
+static void vi_gx_then_cpu_fill_green_diag(struct vi_ctl *ctl)
+{
+	static u32 frame_count;
+	struct fb_info *info = ctl->info;
+	u32 frame = frame_count++;
+
+	gcn_gx_blit_fb_rgb565(vfb_mem, (u32)gx_fb_start,
+			      info->var.xres, info->var.yres);
+	vi_log_fbmem_sample(ctl, "post-gx-pre-cpu-fill", frame);
+	vi_fill_yuyv_green_diag(ctl, frame);
 }
 
 static void vi_transcode_RGB888(struct vi_ctl *ctl)
@@ -1506,7 +1529,7 @@ static irqreturn_t vi_irq_handler(int irq, void *dev)
 				break;
 				case V4L2_PIX_FMT_RGB565:
 					if (gx_accel_ready)
-						vi_fill_yuyv_green_diag(ctl);
+						vi_gx_then_cpu_fill_green_diag(ctl);
 					else
 						vi_transcode_RGB565(ctl);
 					break;
