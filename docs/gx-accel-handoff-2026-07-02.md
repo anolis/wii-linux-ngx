@@ -1551,11 +1551,67 @@ all frames:
 - develops noise anyway: repeated copy or EFB persistence is corrupting the output without
   any primitive draw.
 
+Result: **still has noise**.  Fresh dmesg confirmed the copy-only diagnostic was active:
+frame 0 submitted the 64-byte green copy-clear, then frames 1+ submitted only the 32-byte
+EFB->XFB copy.  The centre sample still changed by f360:
+
+```
+f1 pre:    SR=0008 RD=0000 WT=0020 pos=32
+f360 pre:  SR=0008 RD=0000 WT=0020 pos=32
+f360 diag=white xfb0=ad2b9146 xfb1=90379022 xfbc=7e427531
+```
+
+This proves primitive commands are not required for the visible noise.  Next diagnostic
+submits **nothing** after the one-shot green copy-clear:
+
+```
+frame 0: copy-clear green
+all later frames: no GX submit; only CPU-side XFB sample logging
+```
+
+- stays green: repeated EFB->XFB copy was reading unstable/stale EFB contents.
+- develops noise: visible corruption is outside the repeated GX command stream, likely VI/XFB
+  scanout, XFB memory overlap, or something else writing the XFB.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
 edit was made directly on `/media/anolis/WII-LINUX-NGX1`; it is not part of the kernel
 repo image.
+
+### Host capture and SSH setup
+
+A USB HDMI capture card is available as:
+
+```
+USB3.0 Video: USB3.0 Video (usb-0000:02:00.0-1)
+  /dev/video0  video capture
+  /dev/video1  UVC metadata
+```
+
+OBS works when set to the highest exposed capture mode.  For automation, repo tool
+`tools/gx_capture_probe.py` can probe modes and save PPM frames without OpenCV.  A visible
+preview plus sampled frame capture also works with ffmpeg SDL output:
+
+```
+mkdir -p /tmp/gx-capture-live
+timeout 20s ffmpeg -hide_banner -loglevel warning \
+  -f v4l2 -input_format mjpeg -video_size 1280x720 -framerate 60 -i /dev/video0 \
+  -filter_complex 'split=2[rawview][rawsnap];[rawview]format=yuv420p[view];[rawsnap]fps=1/2,format=rgb24[snapout]' \
+  -map '[view]' -f sdl 'Wii capture preview' \
+  -map '[snapout]' -frames:v 10 /tmp/gx-capture-live/frame-%03d.ppm
+```
+
+This produced ten usable `1280x720` frames with stable metrics.  If OBS is open, ffmpeg
+will fail with `Device or resource busy`.
+
+The SD rootfs has been configured locally for Wi-Fi and key-based root SSH during debug
+boots.  Do not commit wireless credentials or generated WPA files to the repo.  The only
+repo-relevant detail is that `/init-diag.sh` on the SD now mounts `/dev`, starts `wlan0`,
+waits briefly for DHCP, logs interface/route state to `/dmesg.txt`, starts `/usr/sbin/sshd`,
+then continues the existing 20-second dmesg capture, LED blink, and console shell.
+
+Rootfs backups were created with suffix `20260705-121632`.
 
 ---
 

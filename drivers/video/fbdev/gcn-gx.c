@@ -1142,24 +1142,17 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	}
 
 	/*
-	 * DIAGNOSTIC: no primitive submit after the one-shot green seed.
-	 * Re-copy the unchanged EFB every frame.  If noise still develops,
-	 * the corruption is in copy/EFB persistence rather than primitive
-	 * rasterization.  If the screen stays green, the primitive submit is
-	 * the source of the full-screen noise.
+	 * DIAGNOSTIC: no GX submits after the one-shot green seed.  If noise
+	 * still develops, the visible corruption is outside our repeated GX
+	 * command stream.  If the screen stays green, repeated EFB->XFB copy is
+	 * reading unstable/stale EFB contents.
 	 */
-	fifo_pos = 0;
-	if (phase == 360)
-		gx_log_next_submit = true;
-	gx_copy_efb_to_xfb(xfb_phys, width, height, false);
-	gx_submit_cmds();
-
 	/* Diagnostic: log tex and XFB content for frames 0-3 and at color start */
 	if (phase < 4 || phase == 360) {
 		const u32 *xv = (const u32 *)__va(xfb_phys);
 		u32 center_off = (u32)(height / 2) * (width / 2) + (width / 4);
 
-		pr_info("gcn-gx: f%u diag=white xfb0=%08x xfb1=%08x xfbc=%08x\n",
+		pr_info("gcn-gx: f%u diag=no-submit xfb0=%08x xfb1=%08x xfbc=%08x\n",
 			phase, xv[0], xv[1], xv[center_off]);
 	}
 }
