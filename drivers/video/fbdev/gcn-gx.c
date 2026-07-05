@@ -668,8 +668,8 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_bp_reg(0x68000000);	/* GX_SetFieldMode(GX_FALSE, GX_FALSE) */
 	gx_load_bp_reg(0xF33F0000);	/* alpha test always passes */
 
-	/* genMode: 0 texgens, 1 colour channel, 1 TEV stage */
-	gx_load_bp_reg(0x00000010);
+	/* genMode: 0 texgens, 0 colour channels, 1 TEV stage */
+	gx_load_bp_reg(0x00000000);
 
 	xo = 0x156;
 	yo = 0x156;
@@ -680,14 +680,13 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_bp_reg(0x59000000);	/* GX_SetScissorBoxOffset(0, 0) */
 
 	/*
-	 * DIAGNOSTIC: return to the direct vertex-colour path that previously
-	 * produced real full-screen near-black writes.  Restore the older
-	 * pixel-space geometry setup as a known-writing baseline before
-	 * bisecting projection/scissor/primitive differences.
+	 * DIAGNOSTIC: no vertex colour dependency.  With copy-clear isolated in
+	 * its own submit, render a constant-white TEV primitive to test primitive
+	 * coverage/PE writes without channel state.
 	 */
-	gx_load_bp_reg(0xC008FFFA);	/* TEV PASSCLR: colour = RASC */
-	gx_load_bp_reg(0xC108FFD0);	/* TEV PASSCLR: alpha = RASA */
-	gx_load_bp_reg(0x25000000);	/* TEV order: raschan = COLOR0A0 */
+	gx_load_bp_reg(0xC008FFFC);	/* a=b=c=ZERO, d=ONE */
+	gx_load_bp_reg(0xC108FFF0);	/* alpha = ZERO */
+	gx_load_bp_reg(0x25000380);	/* raschan = GX_COLOR_NULL, tex disabled */
 
 	/*
 	 * XF: one colour channel, one direct colour, zero texcoords.
@@ -705,14 +704,8 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	 * encodes attn_fn=GX_AF_SPEC (specular) instead of GX_AF_NONE — an
 	 * invalid attenuation mode for a plain vertex-colour passthrough.
 	 */
-	/*
-	 * DIAGNOSTIC: return exactly to the known-black colour-channel path from
-	 * commit 1cf82d033072.  Later 0x403/ambient/material experiments are
-	 * removed here so this test can determine whether the old visible-write
-	 * baseline is still reproducible.
-	 */
-	gx_load_xf_reg(0x1008, 0x00000001);
-	gx_load_xf_reg(0x1009, 0x00000001);
+	gx_load_xf_reg(0x1008, 0x00000000);
+	gx_load_xf_reg(0x1009, 0x00000000);
 	gx_load_xf_reg(0x100e, 0x00000401);
 	gx_load_xf_reg(0x1010, 0x00000401);
 	gx_load_xf_reg(0x1005, 0);	/* GX_SetClipMode(GX_CLIP_ENABLE) */
@@ -737,10 +730,10 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	wg_f32_bits(F32_ZERO);
 	gx_wr32be(1);
 
-	/* VCD/VAT: direct XY position + direct RGBA8 colour. */
-	gx_load_cp_reg(0x50, 0x2200);
+	/* VCD/VAT: direct XY position only. */
+	gx_load_cp_reg(0x50, 0x0200);
 	gx_load_cp_reg(0x60, 0x0000);
-	gx_load_cp_reg(0x70, 0x40016008);
+	gx_load_cp_reg(0x70, 0x40000008);
 	gx_load_cp_reg(0x80, 0x80000000);
 	gx_load_cp_reg(0x90, 0x00000000);
 }
@@ -843,7 +836,7 @@ static void gx_draw_fullscreen_quad(u16 width, u16 height)
 	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
 }
 
-static void gx_draw_pos_quad(u16 width, u16 height, u8 r, u8 g, u8 b)
+static void gx_draw_pos_quad(u16 width, u16 height)
 {
 	u32 fw = f32_from_u16(width);
 	u32 fh = f32_from_u16(height);
@@ -852,16 +845,9 @@ static void gx_draw_pos_quad(u16 width, u16 height, u8 r, u8 g, u8 b)
 	gx_wr16be(4);
 
 	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
-	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
-
 	wg_f32_bits(fw);       wg_f32_bits(F32_ZERO);
-	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
-
 	wg_f32_bits(fw);       wg_f32_bits(fh);
-	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
-
 	wg_f32_bits(F32_ZERO); wg_f32_bits(fh);
-	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
 }
 
 static void gx_draw_color_quad(u16 width, u16 height, u8 r, u8 g, u8 b)
@@ -1144,7 +1130,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 
 	fifo_pos = 0;
 	gx_setup_vertex_color_state(width, height);
-	gx_draw_color_quad(width, height, c[0], c[1], c[2]);
+	gx_draw_pos_quad(width, height);
 	if (phase == 360)
 		gx_log_next_submit = true;
 	gx_copy_efb_to_xfb(xfb_phys, width, height, false);

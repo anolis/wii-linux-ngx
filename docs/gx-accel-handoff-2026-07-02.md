@@ -1342,6 +1342,39 @@ submit 2: draw direct-colour quad -> final copy
 Deployed image `dbf638513479453469894f554eba8ae91dd89c6cf7c4db72c8d06be5e3a8fdd7`
 contains this split-submit copy-clear/draw diagnostic.  Awaiting hardware result.
 
+Result: **green still** visually. Fresh dmesg:
+
+```
+submit 1 f0: pos=64  RDoff=WToff=0040
+submit 2 f1: pos=416 RDoff=WToff=01a0, xfbc=7e417e30
+f360 submit 2: pos=416 RDoff=WToff=01a0, xfbc=7e417e30
+```
+
+The split-submit diagnostic rules out the single-FIFO `COPY_CTRL_CLEAR` ordering bug:
+isolating the copy-clear did not make the primitive colour appear.  The center sample did
+change from the earlier green signatures (`72487238`/`90369022`) to `7e417e30`, but that
+still decodes as green-ish YUYV and remains unchanged between red and blue `vcol` phases.
+So the primitive path still does not produce visible vertex-colour output.
+
+Next diagnostic keeps the split-submit isolation but removes the vertex-colour dependency
+again:
+
+```
+submit 1: copy-clear green
+submit 2: 0 colour channels, TEV constant white, position-only quad -> final copy
+```
+
+This uses `GX_COLOR_NULL` for raschan, direct XY positions only, `numcolchans=0`, and a
+constant-white TEV colour.  It retests the no-channel/constant-white primitive path now
+that the copy-clear is isolated in a separate FIFO submit.
+
+- white: primitive coverage and PE writes work when colour-channel state is removed.
+- green: the primitive path still does not visibly modify EFB; move to lower-level FIFO
+  byte comparison / XF or PE state diagnostics.
+
+Deployed image `aa4b69755b31a6c62d742cd09924427a9e6de5ee3a25329c0d9de7a5929912fc`
+contains this split-submit constant-white primitive diagnostic.  Awaiting hardware result.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
