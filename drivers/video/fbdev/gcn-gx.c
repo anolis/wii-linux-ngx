@@ -666,23 +666,24 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_bp_reg(0x68000000);	/* GX_SetFieldMode(GX_FALSE, GX_FALSE) */
 	gx_load_bp_reg(0xF33F0000);	/* alpha test always passes */
 
-	/* genMode: 0 texgens, 0 colour channels, 1 TEV stage */
-	gx_load_bp_reg(0x00000000);
+	/* genMode: 0 texgens, 1 colour channel, 1 TEV stage */
+	gx_load_bp_reg(0x00000010);
 
 	/* DIAGNOSTIC: raw full-range scissor, bypass GX's +342 screen offset. */
 	gx_load_bp_reg(0x20000000);
 	gx_load_bp_reg(0x21000000 | (0x7ff << 12) | 0xfff);
 	gx_load_bp_reg(0x59000000);	/* GX_SetScissorBoxOffset(0, 0) */
 
-		/*
-		 * DIAGNOSTIC: completely remove raster colour from the pipe.  Use no
-		 * colour channels, no direct CLR0 vertex payload, raschan=GX_COLOR_NULL,
-		 * and TEV colour d=GX_CC_ONE.  If this still leaves the green pre-clear
-		 * intact, the problem is not vertex colour parsing or channel control.
-		 */
-		gx_load_bp_reg(0xC008FFFC);
-		gx_load_bp_reg(0xC108FFF0);
-		gx_load_bp_reg(0x25000380);
+	/*
+	 * DIAGNOSTIC: return to the direct vertex-colour path that previously
+	 * produced real full-screen near-black writes, but keep the current
+	 * geometry workarounds (full scissor, identity projection, oversized XYZ
+	 * triangles).  This separates the no-channel/constant-TEV path from
+	 * primitive coverage.
+	 */
+	gx_load_bp_reg(0xC008FFFA);	/* TEV PASSCLR: colour = RASC */
+	gx_load_bp_reg(0xC108FFD0);	/* TEV PASSCLR: alpha = RASA */
+	gx_load_bp_reg(0x25000000);	/* TEV order: raschan = COLOR0A0 */
 
 	/*
 	 * XF: one colour channel, one direct colour, zero texcoords.
@@ -726,8 +727,8 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	 * → 0x403.  Ambient colour register (XF 0x100a) set to WHITE
 	 * (0xFFFFFFFF) so the multiply is a no-op.
 	 */
-		gx_load_xf_reg(0x1008, 0x00000000);
-		gx_load_xf_reg(0x1009, 0x00000000);
+	gx_load_xf_reg(0x1008, 0x00000001);
+	gx_load_xf_reg(0x1009, 0x00000001);
 	gx_load_xf_reg(0x100e, 0x00000403);
 	gx_load_xf_reg(0x1010, 0x00000403);
 	gx_load_xf_reg(0x100a, 0xFFFFFFFF);	/* GX_SetChanAmbColor(COLOR0A0, WHITE) */
@@ -754,10 +755,10 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	wg_f32_bits(F32_ZERO);
 	gx_wr32be(1);
 
-	/* VCD/VAT: direct XYZ position only; no CLR0 payload. */
-	gx_load_cp_reg(0x50, 0x0200);
+	/* VCD/VAT: direct XYZ position + direct RGBA8 colour. */
+	gx_load_cp_reg(0x50, 0x2200);
 	gx_load_cp_reg(0x60, 0x0000);
-	gx_load_cp_reg(0x70, 0x40000009);
+	gx_load_cp_reg(0x70, 0x40016009);
 	gx_load_cp_reg(0x80, 0x80000000);
 	gx_load_cp_reg(0x90, 0x00000000);
 }
@@ -860,20 +861,26 @@ static void gx_draw_fullscreen_quad(u16 width, u16 height)
 	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
 }
 
-static void gx_draw_pos_quad(u16 width, u16 height)
+static void gx_draw_pos_quad(u16 width, u16 height, u8 r, u8 g, u8 b)
 {
 	gx_wr8(0x90);			/* GX_TRIANGLES | vtxfmt 0 */
 	gx_wr16be(6);
 
 	/* Huge clip-space triangle: covers the viewport after identity ortho. */
 	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO);
+	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
 	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO);
+	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
 	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); wg_f32_bits(F32_ZERO);
+	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
 
 	/* Same triangle, opposite winding, to defeat any stale/hidden cull state. */
 	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO);
+	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
 	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); wg_f32_bits(F32_ZERO);
+	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
 	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO);
+	gx_wr8(r); gx_wr8(g); gx_wr8(b); gx_wr8(0xff);
 }
 
 static void gx_draw_color_quad(u16 width, u16 height, u8 r, u8 g, u8 b)
@@ -1153,7 +1160,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
 	gx_copy_efb_to_xfb(xfb_phys, width, height, true);
 	gx_setup_vertex_color_state(width, height);
-	gx_draw_pos_quad(width, height);
+	gx_draw_pos_quad(width, height, c[0], c[1], c[2]);
 	if (phase == 360)
 		gx_log_next_submit = true;
 	gx_copy_efb_to_xfb(xfb_phys, width, height, false);

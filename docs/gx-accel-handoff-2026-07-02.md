@@ -1193,6 +1193,32 @@ encoding.
 Deployed image `62e1ad060cf68d7ed0d709e0ddad75bbe5d05c88e0eb03795643193fac2f4611`
 contains this XYZ-position diagnostic.  Awaiting hardware result.
 
+Result: **green still**. Fresh dmesg:
+
+```
+f0   pre/post: pos=512 RDoff=WToff=0200, xfbc=72487238
+f360 pre/post: pos=512 RDoff=WToff=0200, xfbc=72487238
+```
+
+Changing position vertices from XY to XYZ did not help.  The no-channel/constant-white
+TEV diagnostic continues to drain fully while leaving the green EFB pre-clear untouched.
+
+Next test returns to the direct `CLR0` + TEV `PASSCLR` path, because earlier versions of
+that path produced real full-screen near-black EFB writes.  It keeps the recent geometry
+workarounds: full-range scissor, identity projection, oversized opposite-winding
+triangles, and XYZ positions.  Each vertex now carries direct RGBA8 colour again.
+
+- red/green/blue tracking `vcol`: the direct-colour path is healthy with the newer
+  geometry state; the no-channel constant-TEV path was the invalid branch.
+- black/near-black: primitive writes still happen, but colour/TEV/channel output remains
+  wrong; continue debugging output-state encoding from the known-writing path.
+- green: the older full-screen black write depended on some older viewport/projection/
+  scissor detail; reintroduce those one at a time.
+
+Deployed image `9bfae070b9489a7cf13fdf974cfb6eb07a3f64d24e060a51613924d2f96e6484`
+contains this direct-CLR0/PASSCLR-with-current-geometry diagnostic.  Awaiting hardware
+result.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
