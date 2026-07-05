@@ -1508,6 +1508,26 @@ all frames:
   coverage and may be copy/PE side effect.
 - no noise: the noise depends on full-screen setup or edge coverage.
 
+Result: **green screen with slightly smaller noise**.  Fresh dmesg showed clean FIFO drain
+through f360 and the centre XFB sample changing slightly by f360:
+
+```
+f360 pre:  SR=0008 RD=0000 WT=0020 pos=32
+f360 post: SR=000c RDoff=0020 WToff=0020
+f360 diag=white xfb0=90369122 xfb1=90369022 xfbc=7e427531
+```
+
+This is a weak positive signal: the centered half-screen scissor affected the noise scale,
+but the visual result was not obviously shaped.  Next diagnostic tightens the scissor to a
+narrow centered vertical stripe while keeping the same one-shot green seed and pixel-space
+two-triangle primitive.  Expected result:
+
+- vertical stripe of noise/white: scissor controls primitive output; proceed with raster/PE
+  state from this known-controlled shape.
+- green with reduced/no noise: the primitive output obeys scissor but remains unstable or too
+  sparse to see clearly at narrow coverage.
+- full-screen noise: the visible corruption is not governed by primitive scissor coverage.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This

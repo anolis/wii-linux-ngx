@@ -659,7 +659,7 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 
 static void gx_setup_vertex_color_state(u16 width, u16 height)
 {
-	u32 xo, yo;
+	u32 xo, yo, x1, y1, stripe_w;
 
 	gx_load_bp_reg(0x40000000);	/* Z disabled */
 	gx_load_bp_reg(0x41000018);	/* colour/alpha update enabled */
@@ -672,16 +672,20 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_bp_reg(0x00000000);
 
 	/*
-	 * DIAGNOSTIC: constrain raster output to a centered box.  If the noisy
-	 * primitive output obeys this scissor, we have controlled rasterization
-	 * and can expand state from there.  GX adds 0x156 internally.
+	 * DIAGNOSTIC: constrain raster output to a narrow centered vertical
+	 * stripe.  The previous half-screen scissor made the noise slightly
+	 * smaller but not clearly shaped; this makes the scissor discriminator
+	 * visually obvious while still covering the centre XFB sample.
 	 */
-	xo = 0x156 + (width >> 2);
-	yo = 0x156 + (height >> 2);
+	stripe_w = width >> 4;
+	xo = 0x156 + (width >> 1) - (stripe_w >> 1);
+	yo = 0x156;
+	x1 = xo + stripe_w - 1;
+	y1 = yo + height - 1;
 	gx_load_bp_reg(0x20000000 | ((xo & 0x7ff) << 12) | (yo & 0x7ff));
 	gx_load_bp_reg(0x21000000 |
-		       (((xo + (width >> 1)  - 1) & 0x7ff) << 12) |
-		       ((yo + (height >> 1) - 1) & 0xfff));
+		       ((x1 & 0x7ff) << 12) |
+		       (y1 & 0xfff));
 	gx_load_bp_reg(0x59000000);	/* GX_SetScissorBoxOffset(0, 0) */
 
 	/*
