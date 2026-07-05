@@ -1298,6 +1298,23 @@ the confirmed near-black centre sample (`xfbc=157d157d`).  Awaiting hardware res
   treat the green pre-clear result as the reliable baseline and stop chasing
   `1cf82d033072` as known-good.
 
+Result: **green still**. Fresh dmesg from the exact historical build:
+
+```
+f0   pre/post: pos=480 RDoff=WToff=01e0, xfbc=90369022
+f360 pre/post: pos=480 RDoff=WToff=01e0, xfbc=90369022
+```
+
+This invalidates `1cf82d033072` as a currently reproducible known-black baseline.  The
+historical `xfbc=157d157d` result was real in the handoff log, but it is not reproducible
+now from the same source commit built with the current `.config` and booted on the current
+card/rootfs.  Stop using that commit as a control point.  Current reliable facts are:
+
+- EFB copy-clear works and can generate visible colours.
+- Command submission drains fully.
+- Primitive command streams consume FIFO bytes but do not visibly overwrite the copy-clear
+  result under the current runtime setup.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
