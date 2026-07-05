@@ -1393,6 +1393,38 @@ all frames: 0 colour channels, TEV constant white, position-only quad -> final c
 - green forever: the primitive path is still not modifying EFB, even without recurring
   clear interference.
 
+Deployed image `4fadd40dfdbaa1595d79d632d3e5357a3d45ec11d80d7aad572ec3c0a086bde9`
+contains the one-shot-clear diagnostic.
+
+Result: screen started green, then developed visible spots/noise. Fresh dmesg:
+
+```
+f0 clear submit:     pos=64  RDoff=WToff=0040
+f1 primitive+copy:   pos=384 RDoff=WToff=0180, xfbc=72487238
+f2 primitive+copy:   pos=384 RDoff=WToff=0180, xfbc=72487238
+f3 primitive+copy:   pos=384 RDoff=WToff=0180, xfbc=72487238
+f360 primitive+copy: pos=384 RDoff=WToff=0180, xfbc=72496939
+```
+
+Interpretation: the primitive-only frames are no longer completely invisible; repeated
+green clears were masking or dominating the result.  FIFO still drains cleanly, and the
+center XFB sample changes slightly by f360, but output is noisy/partial rather than stable
+white.  This points at primitive/raster/PE completion or state, not CP submission.
+
+Next diagnostic splits the primitive submit and final copy submit:
+
+```
+frame 0: copy-clear green
+all frames:
+  submit A: 0 colour channels, TEV constant white, position-only quad
+  submit B: final EFB->XFB copy, clear=false
+```
+
+- white/stable: same-FIFO primitive+copy was racing the raster/PE backend.
+- green with spots/noise: primitive writes themselves are partial/unstable; continue into
+  geometry/viewport/scissor or PE state.
+- green unchanged: the visual noise may have been unrelated or intermittent.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This

@@ -1127,6 +1127,9 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	fifo_pos = 0;
 	gx_setup_vertex_color_state(width, height);
 	gx_draw_pos_quad(width, height);
+	gx_submit_cmds();
+
+	fifo_pos = 0;
 	if (phase == 360)
 		gx_log_next_submit = true;
 	gx_copy_efb_to_xfb(xfb_phys, width, height, false);
