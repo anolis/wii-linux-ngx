@@ -1757,6 +1757,57 @@ DI1:
 - both are green: the earlier bars were from not keeping `fb_mem` refreshed, or from reading
   the wrong alias in gcn-gx diagnostics.
 
+Result: the CPU fallback stayed visibly green, but the pre-fallback samples proved GX did
+not write the requested direct primitive colour into the scanned XFB.  Same-frame direct
+green draw+copy consumed the FIFO (`RDoff == WToff`) but produced stale/noisy-looking XFB
+samples before the CPU fill:
+
+```
+gcn-gx: f0 pre: SR=0008 RD=0000 WT=01a0 pos=416
+gcn-gx: f0 post: SR=000c RDoff=01a0 WToff=01a0
+gcn-gx: f0 diag=direct-green-copy xfb0=168d2e77 xfb1=10753e83 xfbc=1a7d1088
+gcnfb: f0 post-gx-pre-cpu-fill fb0=168d2e77 fb1=10753e83 fbc=1a7d1088
+gcnfb: f0 cpu-fill-green pattern=a52ba515
+```
+
+Split draw/copy across frames was then tested to rule out an ordering/race issue where
+the copy runs before the primitive lands in EFB.  Frame 0 drew a direct green primitive
+with CPU fill skipped; frame 1 copied EFB to XFB and then resumed CPU green fill:
+
+```
+gcn-gx: f0 diag=draw-f0-copy-f1 xfb0=00800080 xfb1=00800080 xfbc=00800080
+gcnfb: f0 post-gx-pre-cpu-fill fb0=00800080 fb1=00800080 fbc=00800080
+gcnfb: f0 cpu-fill-green skipped
+gcn-gx: f1 diag=draw-f0-copy-f1 xfb0=178c2f76 xfb1=10782377 xfbc=1a7e238f
+gcnfb: f1 post-gx-pre-cpu-fill fb0=178c2f76 fb1=10782377 fbc=1a7e238f
+```
+
+Repeating the split test with a white primitive produced the same result: frame 0 sampled
+as uniform `00800080`, while the frame-1 EFB copy did not become white:
+
+```
+gcn-gx: f0 diag=draw-white-f0-copy-f1 xfb0=00800080 xfb1=00800080 xfbc=00800080
+gcnfb: f0 post-gx-pre-cpu-fill fb0=00800080 fb1=00800080 fbc=00800080
+gcnfb: f0 cpu-fill-green skipped
+gcn-gx: f1 diag=draw-white-f0-copy-f1 xfb0=158d2f77 xfb1=10782377 xfbc=1a7d1088
+gcnfb: f1 post-gx-pre-cpu-fill fb0=158d2f77 fb1=10782377 fbc=1a7d1088
+gcnfb: f1 cpu-fill-green pattern=a52ba515
+gcnfb: f1 post-cpu-fill fb0=a52ba515 fb1=a52ba515 fbc=a52ba515
+```
+
+Current diagnostic, committed after the white result, is a no-submit control:
+
+```
+frame 0: submit no GX commands; gcnfb still skips CPU fill
+frame 1: copy whatever EFB already contains to XFB, then resume CPU green fill
+```
+
+- frame 0 still reads `00800080`: the split primitive frame-0 black sample was just initial
+  XFB state/current scanout contents, not evidence that the primitive path rendered black.
+- frame 0 reads stale boot/noise data instead: the primitive draw submit was correlated with
+  the uniform black sample even though colour was not correct.
+- frame 1 gives the baseline EFB->XFB copy result without any frame-0 primitive.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
