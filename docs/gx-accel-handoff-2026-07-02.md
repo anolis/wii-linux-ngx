@@ -1090,10 +1090,11 @@ f360 pre/post: pos=480 RDoff=WToff=01e0, xfbc=7e417e30
 centre XFB sample remains the green pre-clear.  This rules out the `GX_QUADS` primitive
 assembly path as the reason primitives fail to overwrite EFB.
 
-Operational note: reduced `/init-diag.sh` on the SD rootfs from `sleep 20` to `sleep 10`
-before writing `/dmesg.txt`, so future boot/test cycles should produce the saved log about
-10 seconds sooner.  This edit was made directly on `/media/anolis/WII-LINUX-NGX1`; it is
-not part of the kernel repo image.
+Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
+`sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
+been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
+edit was made directly on `/media/anolis/WII-LINUX-NGX1`; it is not part of the kernel
+repo image.
 
 ---
 
