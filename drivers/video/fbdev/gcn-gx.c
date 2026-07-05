@@ -630,11 +630,11 @@ static void gx_setup_texcoord_parse_state(u16 width, u16 height)
 	wg_f32_bits(F32_16M);
 
 	gx_load_xf_regs_n(0x1020, 7);
-	wg_f32_bits(f32_div_u16(2, width));
-	wg_f32_bits(F32_NEG_ONE);
-	wg_f32_bits(F32_NEG(f32_div_u16(2, height)));
 	wg_f32_bits(F32_ONE);
-	wg_f32_bits(F32_NEG_ONE);
+	wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ONE);
+	wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ONE);
 	wg_f32_bits(F32_ZERO);
 	gx_wr32be(1);
 
@@ -838,24 +838,21 @@ static void gx_draw_fullscreen_quad(u16 width, u16 height)
 
 static void gx_draw_pos_quad(u16 width, u16 height)
 {
-	u32 fw = f32_from_u16(width);
-	u32 fh = f32_from_u16(height);
-
 	/*
-	 * DIAGNOSTIC: avoid GX_QUADS primitive assembly.  Draw the same rectangle
-	 * as two explicit triangles while leaving the rest of the raster/TEV/PE
-	 * state unchanged.
+	 * DIAGNOSTIC: avoid the pixel-space projection path.  Draw oversized
+	 * clip-space triangles against an identity orthographic projection, using
+	 * both windings to rule out stale cull/front-face state.
 	 */
 	gx_wr8(0x90);			/* GX_TRIANGLES | vtxfmt 0 */
 	gx_wr16be(6);
 
-	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
-	wg_f32_bits(fw);       wg_f32_bits(F32_ZERO);
-	wg_f32_bits(fw);       wg_f32_bits(fh);
+	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); /* (-4, -4) */
+	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); /* ( 4, -4) */
+	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); /* ( 0,  4) */
 
-	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
-	wg_f32_bits(fw);       wg_f32_bits(fh);
-	wg_f32_bits(F32_ZERO); wg_f32_bits(fh);
+	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); /* (-4, -4) */
+	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); /* ( 0,  4) */
+	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); /* ( 4, -4) */
 }
 
 static void gx_draw_color_quad(u16 width, u16 height, u8 r, u8 g, u8 b)

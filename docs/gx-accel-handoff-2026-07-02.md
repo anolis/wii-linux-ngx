@@ -1456,6 +1456,31 @@ all frames:
 - green with noise: primitive assembly type is not the main cause; continue toward
   viewport/projection/scissor or PE update state.
 
+Deployed image `15a132d9e4694a93a472110a6f17ee7ed5658df97cabbf1b45e4764a2bb733a2`
+contains the two-triangle rectangle diagnostic.
+
+Result: **green and then noise** visually.  Rootfs `dmesg.txt` was not mounted at the
+usual path when the card returned, but this visual result matches the one-shot/split-submit
+noise pattern and rules out `GX_QUADS` as the main cause.
+
+Next diagnostic keeps the one-shot green seed and split primitive/copy submits, but removes
+the pixel-space rectangle projection path:
+
+```
+frame 0: copy-clear green
+all frames:
+  submit A: identity orthographic projection + oversized clip-space triangles
+  submit B: final EFB->XFB copy, clear=false
+```
+
+The primitive submit uses two opposite-winding triangles with vertices `(-4,-4)`, `(4,-4)`,
+and `(0,4)`, so it should cover the viewport regardless of rectangle edge math and should
+also survive stale cull/front-face state.
+
+- stable white: the pixel-space projection or rectangle coverage math was wrong.
+- green with noise: projection/coverage is not the main cause; continue toward PE state,
+  scissor/field mask, or a missing low-level raster initialization bit.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
