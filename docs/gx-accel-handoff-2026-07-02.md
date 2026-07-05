@@ -1873,6 +1873,60 @@ The key distinction from the failed four-phase test is that every early frame us
   reproducible under the current runtime/logging setup, and primitive tests need a different
   controlled XFB/EFB baseline.
 
+Result: repeated `clear=true` is reproducible and controlled, but it does **not** match the
+CPU fallback's `a52ba515` RGB565-green conversion.  Frames 1-3 produce a stable GX full-green
+copy signature:
+
+```
+gcn-gx: f0 diag=repeated-green-copy-clear xfb0=178c2f76 xfb1=10782377 xfbc=1a7d1088
+gcnfb: f0 post-gx-pre-cpu-fill fb0=178c2f76 fb1=10782377 fbc=1a7d1088
+gcnfb: f0 cpu-fill-green skipped
+gcn-gx: f1 diag=repeated-green-copy-clear xfb0=90369122 xfb1=90369022 xfbc=72487238
+gcnfb: f1 post-gx-pre-cpu-fill fb0=90369122 fb1=90369022 fbc=72487238
+gcnfb: f1 post-cpu-fill fb0=a52ba515 fb1=a52ba515 fbc=a52ba515
+gcn-gx: f2 diag=repeated-green-copy-clear xfb0=90369122 xfb1=90369022 xfbc=72487238
+gcnfb: f2 post-gx-pre-cpu-fill fb0=90369122 fb1=90369022 fbc=72487238
+gcn-gx: f3 diag=repeated-green-copy-clear xfb0=90369122 xfb1=90369022 xfbc=72496939
+gcnfb: f3 post-gx-pre-cpu-fill fb0=90369122 fb1=90369022 fbc=72496939
+```
+
+Important correction: `90369122/90369022` should be treated as controlled GX green from
+full RGB `{0,255,0}` after EFB copy conversion.  `a52ba515` is only the CPU fallback's
+YUYV value for its RGB565-green diagnostic pattern.  This means the old frame-separated
+clear/copy result at the top of this document was not a failure; it was likely GX green
+with different conversion math plus non-uniform centre/stale areas.
+
+The failed four-phase test is now more specific: frame 1 used `clear=false` after frame 0
+`clear=true` and produced `ad22...`, while repeated `clear=true` produces controlled
+`9036...`.  Next useful test is:
+
+```
+frame 0: clear=true green
+frame 1: clear=true green again, but also draw/copy variants later only after confirming
+         whether clear=false or clear=true is required to observe the cleared EFB
+```
+
+Treat `clear=false` copy after a previous clear as suspect until a dedicated test proves
+it can read the clear result.
+
+Current diagnostic avoids `clear=false` and uses the known repeated `clear=true` path as
+the readout:
+
+```
+frame 0: clear=true green   # copies stale EFB, then clears EFB green
+frame 1: draw direct white primitive into EFB only
+frame 2: clear=true green   # copies EFB before clearing it green again
+```
+
+Interpretation:
+
+- frame 2 pre-CPU sample is GX green (`9036...`): the direct white primitive did not
+  overwrite EFB, even when read out by the working `clear=true` path.
+- frame 2 pre-CPU sample is white-derived YUV: primitive writes work; the earlier failures
+  were due to `clear=false` copy/readback or test ordering.
+- frame 2 is stale/noisy: even the repeated `clear=true` readout depends on more state than
+  expected; return to pure copy-clear colour cycling before testing primitives.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This

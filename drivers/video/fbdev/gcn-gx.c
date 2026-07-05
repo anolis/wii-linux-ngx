@@ -1122,13 +1122,27 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_current_frame = phase;
 
 	/*
-	 * DIAGNOSTIC: reproduce the historical solid-colour copy-clear path under
-	 * the current gcnfb pre-CPU-fill sampling setup.  The previous one-shot
-	 * seed test proved that clear=true followed by a later clear=false copy did
-	 * not produce green; this checks whether repeated clear=true copies are the
-	 * special case that produced visible red/green/blue earlier.
+	 * DIAGNOSTIC: use clear=true itself as the readout path, avoiding the
+	 * clear=false copy that failed to observe a one-shot copy-clear seed.
+	 *
+	 * Frame 0: copy stale EFB to XFB, then clear EFB to green.
+	 * Frame 1: draw a direct white primitive into EFB only.
+	 * Frame 2: copy EFB to XFB via clear=true, then clear EFB back to green.
+	 *
+	 * If primitive writes work, frame 2's pre-CPU sample should be white.  If
+	 * they do not, frame 2 should be the known GX-green signature.
 	 */
-	if (phase < 4) {
+	if (phase == 0) {
+		fifo_pos = 0;
+		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
+		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
+		gx_submit_cmds();
+	} else if (phase == 1) {
+		fifo_pos = 0;
+		gx_setup_vertex_color_state(width, height);
+		gx_draw_color_quad(width, height, 0xff, 0xff, 0xff);
+		gx_submit_cmds();
+	} else if (phase == 2) {
 		fifo_pos = 0;
 		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
 		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
@@ -1136,7 +1150,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	}
 
 	/*
-	 * DIAGNOSTIC: no GX submits after frame 3. Later green samples are from
+	 * DIAGNOSTIC: no GX submits after frame 2. Later green samples are from
 	 * the software fallback and only prove the VI/XFB path remains alive.
 	 */
 	/* Diagnostic: log tex and XFB content for frames 0-3 and at color start */
@@ -1144,7 +1158,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		const u32 *xv = (const u32 *)__va(xfb_phys);
 		u32 center_off = (u32)(height / 2) * (width / 2) + (width / 4);
 
-		pr_info("gcn-gx: f%u diag=repeated-green-copy-clear xfb0=%08x xfb1=%08x xfbc=%08x\n",
+		pr_info("gcn-gx: f%u diag=green-clear-f0-draw-white-f1-clear-read-f2 xfb0=%08x xfb1=%08x xfbc=%08x\n",
 			phase, xv[0], xv[1], xv[center_off]);
 	}
 }
