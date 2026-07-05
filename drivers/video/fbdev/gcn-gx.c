@@ -668,8 +668,8 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_bp_reg(0x68000000);	/* GX_SetFieldMode(GX_FALSE, GX_FALSE) */
 	gx_load_bp_reg(0xF33F0000);	/* alpha test always passes */
 
-	/* genMode: 0 texgens, 1 colour channel, 1 TEV stage */
-	gx_load_bp_reg(0x00000010);
+	/* genMode: 0 texgens, 0 colour channels, 1 TEV stage */
+	gx_load_bp_reg(0x00000000);
 
 	xo = 0x156;
 	yo = 0x156;

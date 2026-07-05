@@ -1090,6 +1090,22 @@ f360 pre/post: pos=480 RDoff=WToff=01e0, xfbc=7e417e30
 centre XFB sample remains the green pre-clear.  This rules out the `GX_QUADS` primitive
 assembly path as the reason primitives fail to overwrite EFB.
 
+Follow-up audit found the deployed "no colour channels" diagnostic was not actually
+internally consistent: XF `VtxSpecs`/`SETNUMCHAN` were set to zero colour channels and
+TEV order used `GX_COLOR_NULL`, but BP `genMode` still wrote `0x00000010`, i.e.
+`numcolchans=1`.  That leaves the rasterizer expecting one colour channel while XF
+advertises none, a plausible reason the constant-white primitive never reaches EFB.
+
+Next test changes only BP 0x00 genMode from `0x00000010` to `0x00000000` so all active
+state agrees on `numcolchans=0`:
+
+- white: the mismatched genMode/XF colour-channel count was blocking raster output.
+- green: the no-write failure is elsewhere; continue with viewport/scissor/cull/front-face
+  isolation.
+
+Deployed image `5938e69bf97e56893c1207b7b3060f558ba423e4cfcc817deccdcd068fd86914`
+contains this genMode/XF channel-count consistency fix.  Awaiting hardware result.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
