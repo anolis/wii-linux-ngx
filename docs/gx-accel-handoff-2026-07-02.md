@@ -57,6 +57,38 @@ fallback.
 
 Current test in `gcn_gx_blit_fb_rgb565()`:
 
+Latest result from the split direct draw/copy test:
+
+```text
+gcn-gx: f0 pre: SR=0008 RD=0000 WT=0180 pos=384
+gcn-gx: f0 post: SR=000c RDoff=0180 WToff=0180
+gcn-gx: f0 diag=draw-f0-copy-f1 xfb0=00800080 xfb1=00800080 xfbc=00800080
+gcnfb: f0 post-gx-pre-cpu-fill fb0=00800080 fb1=00800080 fbc=00800080
+gcnfb: f0 cpu-fill-green skipped
+gcn-gx: f1 pre: SR=0008 RD=0000 WT=0020 pos=32
+gcn-gx: f1 post: SR=000c RDoff=0020 WToff=0020
+gcn-gx: f1 diag=draw-f0-copy-f1 xfb0=178c2f76 xfb1=10782377 xfbc=1a7e238f
+gcnfb: f1 post-gx-pre-cpu-fill fb0=178c2f76 fb1=10782377 fbc=1a7e238f
+gcnfb: f1 cpu-fill-green pattern=a52ba515
+```
+
+Interpretation: visually the screen was uniform green, but that came from the
+CPU fallback after frame 1.  The decisive logs show frame 0 became uniform
+`00800080` before software touched XFB, despite submitting only the primitive
+draw and no explicit display copy.  Frame 1's explicit copy still did not
+produce the requested green primitive output.  This is progress: direct
+primitive state can correlate with a uniform black/zero output, but the colour
+path is still wrong or the output being sampled is not the intended EFB colour.
+
+Current test isolates output colour by sending direct vertex **white** while
+preserving this split frame structure.  If frame 0 remains `00800080`, the
+channel/TEV colour is being forced to zero.  If frame 0 or frame 1 becomes a
+white-derived YUYV value, the direct vertex colour path can work and the
+previous green case failed through colour-specific state, copy timing, or the
+green fallback masking the result.
+
+Previous test in `gcn_gx_blit_fb_rgb565()`:
+
 Latest result from the same-frame direct-green draw+copy test:
 
 ```text

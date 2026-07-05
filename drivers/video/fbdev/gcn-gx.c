@@ -1123,15 +1123,16 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 
 	/*
 	 * DIAGNOSTIC: split primitive and copy across VI frames. Frame 0 draws
-	 * a direct RGBA8 green fullscreen primitive into EFB only. gcnfb skips
+	 * a direct RGBA8 white fullscreen primitive into EFB only. gcnfb skips
 	 * the CPU fallback on frame 0. Frame 1 copies EFB to XFB. If primitive
 	 * writes are merely late relative to same-FIFO copy, frame 1 should
-	 * show the green primitive before the CPU fallback touches XFB.
+	 * show the white primitive before the CPU fallback touches XFB. If
+	 * frame 0/1 stay at 00800080, the primitive colour path is forced black.
 	 */
 	if (phase == 0) {
 		fifo_pos = 0;
 		gx_setup_vertex_color_state(width, height);
-		gx_draw_color_quad(width, height, 0x00, 0xff, 0x00);
+		gx_draw_color_quad(width, height, 0xff, 0xff, 0xff);
 		gx_submit_cmds();
 	} else if (phase == 1) {
 		fifo_pos = 0;
@@ -1148,7 +1149,7 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		const u32 *xv = (const u32 *)__va(xfb_phys);
 		u32 center_off = (u32)(height / 2) * (width / 2) + (width / 4);
 
-		pr_info("gcn-gx: f%u diag=draw-f0-copy-f1 xfb0=%08x xfb1=%08x xfbc=%08x\n",
+		pr_info("gcn-gx: f%u diag=draw-white-f0-copy-f1 xfb0=%08x xfb1=%08x xfbc=%08x\n",
 			phase, xv[0], xv[1], xv[center_off]);
 	}
 }
