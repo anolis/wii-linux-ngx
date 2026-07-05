@@ -1375,6 +1375,24 @@ that the copy-clear is isolated in a separate FIFO submit.
 Deployed image `aa4b69755b31a6c62d742cd09924427a9e6de5ee3a25329c0d9de7a5929912fc`
 contains this split-submit constant-white primitive diagnostic.  Awaiting hardware result.
 
+Result: **green** visually.  This rules out vertex colour/channel state as the reason
+primitive output is not visible: even a position-only quad with constant-white TEV did not
+overwrite the proven green copy-clear.
+
+Next diagnostic removes the recurring clear.  The previous split-submit tests still issued
+the green copy-clear every frame, so a late or reordered primitive write could be masked by
+the next frame's clear.  The new image seeds EFB/XFB with green on frame 0 only:
+
+```
+frame 0: copy-clear green
+all frames: 0 colour channels, TEV constant white, position-only quad -> final copy
+```
+
+- white after the first frame: primitive writes were happening, but repeated clear/copy
+  was masking them.
+- green forever: the primitive path is still not modifying EFB, even without recurring
+  clear interference.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This

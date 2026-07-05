@@ -1108,25 +1108,21 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
 	static u32 frame_count;
 	u32 phase = frame_count++;
-	static const u8 colors[3][3] = {
-		{ 0xff, 0x00, 0x00 },
-		{ 0x00, 0xff, 0x00 },
-		{ 0x00, 0x00, 0xff },
-	};
-	const u8 *c = colors[(phase / 180) % 3];
 
 	gx_current_frame = phase;
 
 	/*
-	 * DIAGNOSTIC: submit the proven green copy-clear as its own FIFO before
-	 * submitting any primitive commands.  GX_CopyDisp(clear=true) clears EFB
-	 * after the copy operation; splitting the submit rules out that delayed
-	 * clear wiping the primitive output later in the same FIFO.
+	 * DIAGNOSTIC: seed EFB/XFB with the proven green copy-clear only once.
+	 * Re-clearing every frame can mask a primitive that reaches EFB late or
+	 * out of order relative to the following copy.  After frame 0, the only
+	 * commands submitted are the constant-white primitive and final copy.
 	 */
-	fifo_pos = 0;
-	gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
-	gx_copy_efb_to_xfb(xfb_phys, width, height, true);
-	gx_submit_cmds();
+	if (phase == 0) {
+		fifo_pos = 0;
+		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
+		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
+		gx_submit_cmds();
+	}
 
 	fifo_pos = 0;
 	gx_setup_vertex_color_state(width, height);
@@ -1141,8 +1137,8 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		const u32 *xv = (const u32 *)__va(xfb_phys);
 		u32 center_off = (u32)(height / 2) * (width / 2) + (width / 4);
 
-		pr_info("gcn-gx: f%u vcol=%02x%02x%02x xfb0=%08x xfb1=%08x xfbc=%08x\n",
-			phase, c[0], c[1], c[2], xv[0], xv[1], xv[center_off]);
+		pr_info("gcn-gx: f%u diag=white xfb0=%08x xfb1=%08x xfbc=%08x\n",
+			phase, xv[0], xv[1], xv[center_off]);
 	}
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
