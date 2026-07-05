@@ -1129,17 +1129,20 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	};
 	const u8 *c = colors[(phase / 180) % 3];
 
-	fifo_pos = 0;
 	gx_current_frame = phase;
 
 	/*
-	 * DIAGNOSTIC: clear EFB through the proven copy-clear path first, then
-	 * draw a full-screen direct RGBA8 vertex-colour quad and copy again.  If
-	 * primitive raster writes are still missing, the final copy should show
-	 * green instead of inherited mini/boot noise.
+	 * DIAGNOSTIC: submit the proven green copy-clear as its own FIFO before
+	 * submitting any primitive commands.  GX_CopyDisp(clear=true) clears EFB
+	 * after the copy operation; splitting the submit rules out that delayed
+	 * clear wiping the primitive output later in the same FIFO.
 	 */
+	fifo_pos = 0;
 	gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
 	gx_copy_efb_to_xfb(xfb_phys, width, height, true);
+	gx_submit_cmds();
+
+	fifo_pos = 0;
 	gx_setup_vertex_color_state(width, height);
 	gx_draw_color_quad(width, height, c[0], c[1], c[2]);
 	if (phase == 360)

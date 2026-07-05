@@ -1315,6 +1315,33 @@ card/rootfs.  Stop using that commit as a control point.  Current reliable facts
 - Primitive command streams consume FIFO bytes but do not visibly overwrite the copy-clear
   result under the current runtime setup.
 
+Next test checks a possible ordering/race bug in the diagnostic itself.  `GX_CopyDisp` with
+`clear=true` clears EFB **after** the copy operation.  The previous diagnostics placed:
+
+```
+copy-clear green -> draw primitive -> final copy
+```
+
+inside one FIFO.  If the copy-clear operation is delayed internally relative to following
+primitive work, the green clear could wipe out the primitive before the final copy, making
+all primitive tests falsely appear green.
+
+The new diagnostic submits the copy-clear as a separate FIFO first, waits through the usual
+`gx_submit_cmds()` idle path, then submits the primitive draw plus final copy as a second
+FIFO:
+
+```
+submit 1: copy-clear green
+submit 2: draw direct-colour quad -> final copy
+```
+
+- red/green/blue or black/near-black: the single-FIFO diagnostic was self-invalidating;
+  the copy-clear was wiping later primitive output.
+- green: the primitive still does not visibly modify EFB even when the clear is isolated.
+
+Deployed image `dbf638513479453469894f554eba8ae91dd89c6cf7c4db72c8d06be5e3a8fdd7`
+contains this split-submit copy-clear/draw diagnostic.  Awaiting hardware result.
+
 Operational note: `/init-diag.sh` on the SD rootfs was briefly reduced from `sleep 20` to
 `sleep 10`, but that cut off the f360 marker, which appears around 15 seconds.  It has
 been restored to `sleep 20` so `/dmesg.txt` captures both early frames and f360.  This
