@@ -2156,6 +2156,47 @@ Commit `d7af01f74d3a` contains this diagnostic.  Deployed image SHA-256:
 5561e87c75d4e8a25adc63156072d549c0c198240f5be50263f87b4c9a708d55
 ```
 
+Result (checksum-verified on card): **new, different result -- neither predicted branch.**
+Frame 2 (pre-CPU-fallback, the valid sample):
+
+```text
+gcn-gx: f2 diag=green-clear-f0-const-white-f1-clear-read-f2 xfb0=b52f8975 xfb1=d8807396 xfbc=1f781f75
+gcnfb: f2 post-gx-pre-cpu-fill fb0=b52f8975 fb1=d8807396 fbc=1f781f75
+```
+
+`xfbc=1f781f75` is not the "still green" family (`9036...`/`7241...`/`7e41...`) seen across
+every single test in this entire bisection -- it decodes (Y~=31, near-neutral chroma) to the
+**"near-black"** signature, an exact hex match to a result logged much earlier in this
+project (the `matsrc=VTX` ambient/material test) from a completely different colour-channel
+configuration.  This is a real, measurable behaviour change: every prior test of this exact
+no-channel/`CC_ONE` diagnostic (including the just-ruled-out clip-disable test) read back
+"still green" (primitive produces zero effect).  BP 0x42 is the first change in this entire
+session to make the primitive visibly write to EFB at all through this diagnostic path.
+
+However the colour is wrong: TEV (`a=b=c=GX_CC_ZERO`, `d=GX_CC_ONE`, add, scale=1, bias=0,
+clamp=on -- re-verified bit-for-bit against libogc's exact field layout this session) should
+mathematically output pure white, not near-black.  This is the same unexplained "near-black
+convergence regardless of intended colour" the project's history flagged early on (three
+different colour-channel configs producing the same near-black result) before the
+investigation pivoted to chasing the "no writes at all" problem -- this result reopens that
+thread rather than resolving it.
+
+Next test: swap TEV `d` from `GX_CC_ONE(12)` to `GX_CC_HALF(13)`, a one-bit register change,
+to determine whether TEV programming is being respected at all:
+
+- Mid-gray output (visibly distinct luma from both white and the near-black signature): TEV
+  programming is respected; the near-black result is a real, separate bug in how this
+  formula evaluates on real hardware, not a downstream override.
+- Unchanged near-black readout regardless of the TEV `d` change: the TEV-computed colour is
+  being overridden/attenuated by something entirely downstream -- redirect focus to the PE
+  write path or the EFB->XFB copy/YUYV conversion, not TEV/raster state.
+
+Commit `27c0bcf9eeec` contains this diagnostic.  Deployed image SHA-256:
+
+```text
+fc66b633a50b858bbaaf9d93523a1a20898e2c12a0645be39f17389ea5ffa2e1
+```
+
 Awaiting hardware result.
 
 ### Wifi retest on independent hardware (same session)
