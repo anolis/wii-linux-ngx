@@ -2275,6 +2275,28 @@ mid-tone result (control/sanity check, rule out build or card-state drift); try 
 independent path); or step back from single-bit TEV micro-variation entirely and consider
 whether this fine a grain of detail is the best use of further hardware cycles right now.
 
+User raised a good hypothesis to check before trusting any of these three results further:
+could this be silently falling through to the `fbdev` software transcode path
+(`vi_transcode_RGB565`) rather than genuinely exercising the GX code path?  Checked
+directly and ruled out: `gcnfb: probe done vfb_format=0x50424752 gx=1` confirms
+`gx_accel_ready` was true, no "GX accel unavailable" fallback message appears anywhere in
+the log, and -- more decisively -- the `gcn-gx: fN diag=...` lines themselves are only ever
+printed from inside `gcn_gx_blit_fb_rgb565`, which the software fallback path never calls
+at all.  The scale=2x "still green" result was a genuine GX-hardware outcome, not a
+software-fallback artifact.
+
+Chose the control/sanity check first: re-deployed the exact `d=GX_CC_HALF, scale=1x`
+configuration that gave the mid-tone result, completely unchanged, to confirm it's still
+reproducible before trusting any of the three results further.
+
+Commit `1fe09353a70a` contains this control test.  Deployed image SHA-256:
+
+```text
+9ef71ac8461d51016c94457d316cf89dc73104ae10ed487564e4b327ccd1d8cd
+```
+
+Awaiting hardware result.
+
 ### Wifi retest on independent hardware (same session)
 
 Separately, the wifi/ssh dead end from earlier this session was retested on a second,
