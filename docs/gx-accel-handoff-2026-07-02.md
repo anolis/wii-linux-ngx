@@ -2080,7 +2080,45 @@ Commit `6002aa187cda` contains this diagnostic.  Deployed image SHA-256:
 e02ea422dde38ba0021fe166c27edcdb2d73b5cfc1a8edbe3b076bcd6b61fb00
 ```
 
-Awaiting hardware result.
+Result: **still green**, ruling out clip-volume rejection.  Tested on a second,
+independently-imaged SD card (see the wifi retest note below); the deployed
+`BOOTWII/gumboot/zImage.ngx` checksum on that card was confirmed byte-for-byte identical
+to the checksum above before trusting this result.  Frame 360 samples were contaminated by
+the CPU-fallback pattern as expected (`xfbc=a52ba515`, the documented CPU-fill signature,
+not a GX result -- see the `a52ba515` vs `9036...` distinction earlier in this doc); the
+valid pre-contamination sample is frame 2:
+
+```text
+gcn-gx: f2 diag=green-clear-f0-const-white-f1-clear-read-f2 xfb0=ad23ca5d xfb1=91309039 xfbc=7e417e30
+gcnfb: f2 post-gx-pre-cpu-fill fb0=ad23ca5d fb1=91309039 fbc=7e417e30
+```
+
+`xfbc=7e417e30` matches the documented "still green" signature family from the earlier
+split-submit copy-clear/draw diagnostic (same exact value logged there and interpreted as
+green-ish YUYV, unchanged across vertex-colour phases).  `GX_CLIP_DISABLE` did not produce
+a white-derived readout.  Test A is ruled out: the oversized clip-space geometry was never
+being rejected by the XF clipper.
+
+Next step per the test-strategy plan: Test B, a static FIFO-byte-level audit of the
+primitive draw call in `gx_draw_pos_quad` (`gcn-gx.c`) against `libogc`'s `GX_Begin`/
+`GX_End` emission for the same `GX_TRIANGLES` configuration, since CP/GP has now been shown
+to cleanly consume every primitive submission across every raster-state permutation tried
+while never once producing a visible EFB write -- consistent with a primitive-encoding bug
+(wrong opcode, vertex count, or VAT/VCD byte-layout mismatch causing the GP to parse the
+command stream as describing zero real geometry) rather than any raster/PE/clip state.
+This needs no new hardware boot; it can be done by inspecting the emitted bytes and
+comparing against `/home/anolis/repos/libogc/libogc/gx.c`.
+
+### Wifi retest on independent hardware (same session)
+
+Separately, the wifi/ssh dead end from earlier this session was retested on a second,
+freshly-imaged SD card (independent rootfs from the one used throughout the rest of this
+doc).  Wifi failed identically: `wpa_supplicant` reached `ASSOCIATED` then bounced back to
+`SCANNING`/`DISCONNECTED` without ever reaching `COMPLETED`, matching the original card's
+symptom exactly.  This rules out "something specific to the first card's rootfs/config" and
+is further (not conclusive) evidence the wifi issue is a genuine kernel-level `b43` driver
+bug rather than a config or corruption issue local to one SD card.  Wifi remains shelved;
+resuming the GX bisection (Test B above) is the active thread.
 
 ---
 
