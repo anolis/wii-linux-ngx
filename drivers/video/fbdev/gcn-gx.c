@@ -692,24 +692,26 @@ static void gx_setup_constant_white_state(u16 width, u16 height)
 	gx_load_bp_reg(0x59000000);	/* GX_SetScissorBoxOffset(0, 0) */
 
 	/*
-	 * DIAGNOSTIC: with BP 0x42 (dst-alpha) now initialised, this exact
-	 * no-channel/CC_ONE diagnostic stopped reading back the "still green"
-	 * (no-write) signature for the first time in this whole bisection --
-	 * it now reads back the historical "near-black" signature (xfbc
-	 * decodes to Y~=31, near-neutral chroma) instead, matching a
-	 * convergent near-black result seen much earlier in this project
-	 * across totally different colour-channel configs.  TEV should
-	 * mathematically output pure white here (a=b=c=ZERO, d=ONE, add,
-	 * scale=1, bias=0, clamp=on -- verified bit-for-bit against libogc),
-	 * so the discrepancy is downstream of or unrelated to this formula.
-	 * Swap d from GX_CC_ONE(12) to GX_CC_HALF(13) -- a one-bit register
-	 * change -- to test whether TEV programming is actually being
-	 * respected at all: mid-gray output confirms it is (and the
-	 * near-black result is a real, separate bug); an unchanged near-black
-	 * readout means the TEV-computed colour is being overridden
-	 * downstream (PE write path or copy/YUYV conversion), not by TEV.
+	 * DIAGNOSTIC: d=GX_CC_ONE (1.0) read back near-black (Y~=31); swapping
+	 * to d=GX_CC_HALF (0.5) read back mid-tone (Y~=128) -- confirming TEV
+	 * is respected, but inverted from naive expectation (ONE darker than
+	 * HALF).  Leading hypothesis: TEV's internal fixed-point math clamps
+	 * or wraps specifically at/above the 1.0 boundary, rather than
+	 * GX_CC_ONE's input-select encoding itself being wrong (already
+	 * verified against libogc: value 12, matches).
+	 *
+	 * This test reaches the same *intended* final brightness (1.0) via a
+	 * different computational path: d=GX_CC_HALF (0.5, confirmed safe)
+	 * with TEV scale=GX_CS_SCALE_2 (2x) instead of selecting the ONE
+	 * constant directly.  0.5 * 2 = 1.0 through the scale multiplier.
+	 *
+	 * - Near-black again (matching the CC_ONE result): confirms a
+	 *   hardware/fixed-point clamp or overflow at the 1.0 boundary,
+	 *   regardless of which path reaches it.
+	 * - Genuine bright/white output: isolates the bug specifically to
+	 *   GX_CC_ONE's input-select path, not general 1.0-valued output.
 	 */
-	gx_load_bp_reg(0xC008FFFD);	/* a=b=c=ZERO, d=GX_CC_HALF */
+	gx_load_bp_reg(0xC018FFFD);	/* a=b=c=ZERO, d=GX_CC_HALF, scale=2x */
 	gx_load_bp_reg(0xC108FFF0);	/* alpha = ZERO */
 	gx_load_bp_reg(0x25000380);	/* raschan = GX_COLOR_NULL, tex disabled */
 
