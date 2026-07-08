@@ -2568,6 +2568,14 @@ being processed by the GP), even if triangle *assembly* specifically is not happ
 real, useful distinction.  If this also reads 0, either the counter mechanism itself isn't
 trustworthy after all, or no vertex processing is happening at all (a much deeper issue).
 
+Commit `1e7257591707`, deployed image SHA-256:
+
+```text
+8fc005dc3b8aff89b529bf0ce27eaaef283773369db1ef9a7a4b1adef52f8fb6
+```
+
+Awaiting hardware result.
+
 ### Wifi retest on independent hardware (same session)
 
 Separately, the wifi/ssh dead end from earlier this session was retested on a second,
