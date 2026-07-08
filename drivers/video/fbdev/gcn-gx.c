@@ -1175,14 +1175,28 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		 */
 		gx_load_bp_reg(0x23009E7F);
 		cp_write(CP_REG_CLR, 4);
-		gx_draw_pos_quad(width, height);
+		/*
+		 * DIAGNOSTIC (perf-counter mechanism validation, zero-draw
+		 * control): the readback mechanism itself has never been
+		 * independently verified -- the two readings so far (3907289
+		 * from a boot that may have been mid-crash, then 0 from a
+		 * clean boot) are merely "plausible", not proof the clear/
+		 * offset/selector encoding is actually correct.  Skip the
+		 * triangle draw entirely this round: submit only the
+		 * select+clear and the (now-empty) FIFO, then read back.  If
+		 * this mechanism is trustworthy, the count MUST read exactly
+		 * 0 here, since zero triangles were ever submitted.  Anything
+		 * else proves the mechanism itself is unreliable, regardless
+		 * of what any future non-zero reading might otherwise seem to
+		 * show.
+		 */
 		gx_submit_cmds();
 		{
 			u32 triangles_passed =
 				((u32)cp_read(CP_REG_PERF0_HI) << 16) |
 				cp_read(CP_REG_PERF0_LO);
 
-			pr_info("gcn-gx: f%u perf0=triangles_passed count=%u\n",
+			pr_info("gcn-gx: f%u perf0=triangles_passed count=%u (zero-draw control)\n",
 				phase, triangles_passed);
 		}
 	} else if (phase == 2) {
