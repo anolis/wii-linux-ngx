@@ -1162,31 +1162,35 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		fifo_pos = 0;
 		gx_setup_constant_white_state(width, height);
 		/*
-		 * DIAGNOSTIC: both GX_PERF0_TRIANGLES_PASSED and
-		 * GX_PERF0_CLIP_VTX have validated-read 0 for our 2-triangle
-		 * draw -- cull mode (confirmed GX_CULL_NONE) and the XF clip
-		 * stage are both ruled out as the rejector with real
-		 * evidence.  Test the most fundamental checkpoint next:
-		 * GX_PERF0_TRIANGLES (libogc encoding BP 0x2300AE7F) counts
-		 * total triangles seen by the GP, unconditional of any
-		 * pass/fail/cull gate.  0 here would point at a structural
-		 * primitive-recognition issue despite the earlier byte-exact
-		 * FIFO audit against libogc's GX_Begin/GX_Position2f32/
-		 * GX_End emission; 2 here would mean triangles are correctly
-		 * recognized but rejected by some gate distinct from cull
-		 * and clip.
+		 * DIAGNOSTIC: GX_PERF0_TRIANGLES_PASSED, GX_PERF0_CLIP_VTX,
+		 * and now GX_PERF0_TRIANGLES (total, unconditional) have all
+		 * validated-read 0 for our real 2-triangle/6-vertex draw.
+		 * But the zero-draw control only proved "0 draws in -> 0 out"
+		 * -- it cannot distinguish a genuinely working counter from
+		 * one simply stuck at 0 regardless of input, since both give
+		 * the same result for zero input.  Get a real positive
+		 * control instead: select GX_PERF0_VERTICES (libogc encoding
+		 * XF 0x1006 = 0x0000014a, metric value 0) with the same real
+		 * draw.  6 here is genuine positive proof the counter
+		 * mechanism works and individual vertices ARE being
+		 * processed by the GP, even if triangle *assembly*
+		 * specifically is not happening -- a real, useful
+		 * distinction from the "primitive never recognized" result
+		 * above.  0 here means either the counter mechanism isn't
+		 * trustworthy after all, or no vertex processing is
+		 * happening at all -- a much deeper issue.
 		 */
-		gx_load_bp_reg(0x2300AE7F);
+		gx_load_xf_reg(0x1006, 0x0000014a);
 		cp_write(CP_REG_CLR, 4);
 		gx_draw_pos_quad(width, height);
 		gx_submit_cmds();
 		{
-			u32 triangles_total =
+			u32 vertices_total =
 				((u32)cp_read(CP_REG_PERF0_HI) << 16) |
 				cp_read(CP_REG_PERF0_LO);
 
-			pr_info("gcn-gx: f%u perf0=triangles_total count=%u\n",
-				phase, triangles_total);
+			pr_info("gcn-gx: f%u perf0=vertices_total count=%u\n",
+				phase, vertices_total);
 		}
 	} else if (phase == 2) {
 		fifo_pos = 0;
