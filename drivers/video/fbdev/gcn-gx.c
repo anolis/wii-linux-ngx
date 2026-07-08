@@ -1162,42 +1162,34 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		fifo_pos = 0;
 		gx_setup_constant_white_state(width, height);
 		/*
-		 * DIAGNOSTIC: select GX_PERF0_TRIANGLES_PASSED (BP 0x23,
-		 * libogc's exact encoding 0x23009E7F -- a pure hardware
-		 * perf-counter select, verified via GX_SetGPMetric() to have
-		 * no effect on actual rendering) and clear the counter before
-		 * the draw.  This gives a direct, colour-independent answer:
-		 * did our 2 triangles actually pass culling and reach the
-		 * rasterizer, or were they rejected before that stage?  This
-		 * sidesteps the whole TEV/colour readout question, and the
-		 * pixel-sampling reliability problem found earlier this
-		 * session, entirely.
+		 * DIAGNOSTIC: the perf-counter mechanism (CP_REG_CLR clear,
+		 * CP register 32/33 readback) is now validated -- a zero-draw
+		 * control read back exactly 0.  GX_PERF0_TRIANGLES_PASSED
+		 * with a real 2-triangle draw also validated-read 0: our
+		 * triangles genuinely never pass culling/reach the
+		 * rasterizer.  Cull mode is confirmed GX_CULL_NONE (should
+		 * never reject any triangle), so the rejection must happen
+		 * earlier in the pipeline.  Test directly: select
+		 * GX_PERF0_CLIP_VTX (libogc's exact encoding, XF 0x1006 =
+		 * 0x0000016b, NOT a BP write for this metric) to count how
+		 * many of our 6 submitted vertices the XF clip stage
+		 * actually clips.  6 clipped -> the clip stage is rejecting
+		 * everything despite the earlier (never full-frame-verified)
+		 * clip-disable test suggesting otherwise; 0 clipped -> clip
+		 * is not the rejector, look at primitive/triangle-setup
+		 * assembly instead.
 		 */
-		gx_load_bp_reg(0x23009E7F);
+		gx_load_xf_reg(0x1006, 0x0000016b);
 		cp_write(CP_REG_CLR, 4);
-		/*
-		 * DIAGNOSTIC (perf-counter mechanism validation, zero-draw
-		 * control): the readback mechanism itself has never been
-		 * independently verified -- the two readings so far (3907289
-		 * from a boot that may have been mid-crash, then 0 from a
-		 * clean boot) are merely "plausible", not proof the clear/
-		 * offset/selector encoding is actually correct.  Skip the
-		 * triangle draw entirely this round: submit only the
-		 * select+clear and the (now-empty) FIFO, then read back.  If
-		 * this mechanism is trustworthy, the count MUST read exactly
-		 * 0 here, since zero triangles were ever submitted.  Anything
-		 * else proves the mechanism itself is unreliable, regardless
-		 * of what any future non-zero reading might otherwise seem to
-		 * show.
-		 */
+		gx_draw_pos_quad(width, height);
 		gx_submit_cmds();
 		{
-			u32 triangles_passed =
+			u32 clip_vtx =
 				((u32)cp_read(CP_REG_PERF0_HI) << 16) |
 				cp_read(CP_REG_PERF0_LO);
 
-			pr_info("gcn-gx: f%u perf0=triangles_passed count=%u (zero-draw control)\n",
-				phase, triangles_passed);
+			pr_info("gcn-gx: f%u perf0=clip_vtx count=%u\n",
+				phase, clip_vtx);
 		}
 	} else if (phase == 2) {
 		fifo_pos = 0;
