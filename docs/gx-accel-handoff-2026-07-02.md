@@ -2372,6 +2372,44 @@ scissor/viewport boundary) may extend to the centre sample (`xfbc`) too, at leas
 some conditions -- treat single-pixel dmesg samples as a fast first look, not proof, from
 now on.
 
+### Fresh angle: hardware perf counters, and comparing against a known-working reference
+
+Checked whether `GX_Init()`'s other one-time perf-counter-related writes (`CP 0x20`,
+`XF 0x1006`, `BP 0x23`/`0x24`/`0x67`, found while widening the earlier register-gap audit)
+were relevant.  They are not -- confirmed via `GX_SetGPMetric()` in libogc that these are
+pure hardware performance-counter configuration (triangle/vertex/clock counts for
+profiling), with zero effect on actual rendering output.  Ruled out by direct reasoning.
+
+This did surface something genuinely useful though: `GX_PERF0_TRIANGLES_PASSED`, a
+hardware counter that directly answers "did our triangles survive culling and reach the
+rasterizer" -- completely independent of colour output, sidestepping the whole TEV/colour
+question and the pixel-sampling reliability problem above entirely.  Added: select this
+counter (BP 0x23, libogc's exact encoding `0x23009E7F`) and clear it before the frame-1
+primitive draw, then read back the 32-bit count from CP registers 32/33 (byte offsets
+0x40/0x42, matching libogc's `GX_ReadGPMetric()` indexing) after the draw completes.
+Commit `1b460675a7b6`, deployed image SHA-256:
+
+```text
+47018c77d89411e094485e5a73e0fac6bac5ea51f329681cc45e21cc3866dee4
+```
+
+Separately, fetched the actual devkitPro `wii-examples` canonical GX triangle demo
+(`graphics/gx/triangle/source/triangle.c`) as a known-working reference to compare against,
+per the session's new direction of copying a proven-correct path rather than continuing
+piecemeal register hypotheses.  Notable difference found: the working example enables
+Z-testing (`GX_SetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE)`) with `GX_POS_XYZ` vertices, while our
+diagnostic explicitly disables Z (`BP 0x40 = 0x40000000`) with XY-only vertices.  Confirmed
+our copy-clear already writes `BP 0x51 = 0x00ffffff` (Z-clear to far/max) so there's no
+obvious confound in testing Z-enabled with XYZ positions -- this exact combination (Z
+enabled *and* XYZ positions together) has not been tried; earlier XYZ-position tests in this
+project used Z disabled.  Also noted (not yet acted on): the working example uses `INDEX8`
+addressing via `GX_SetArray`/CP array-base-and-stride registers, not our `DIRECT` addressing
+-- not considered relevant since direct mode is a distinct, valid path, but flagged in case
+it becomes relevant later.
+
+Awaiting hardware result for the perf-counter read.  Next test to prepare: Z-enable +
+XYZ-position combination described above.
+
 ### Wifi retest on independent hardware (same session)
 
 Separately, the wifi/ssh dead end from earlier this session was retested on a second,
