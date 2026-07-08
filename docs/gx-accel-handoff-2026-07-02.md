@@ -2024,6 +2024,64 @@ then continues the existing 20-second dmesg capture, LED blink, and console shel
 
 Rootfs backups were created with suffix `20260705-121632`.
 
+### 2026-07-08 session: wifi/ssh dead end, resume GX bisection
+
+The Wi-Fi/SSH effort above did not reach a working state.  Root cause, confirmed via
+`init-diag.sh`'s status logging and `wpa_supplicant -dd` debug output: `wpa_supplicant`
+authenticates and associates cleanly with the target AP (`status_code=0`), but the AP's
+EAPOL Message 1 of the 4-way handshake never arrives -- zero `RX message`/`RX EAPOL` lines
+in the debug log, and independently `ifconfig wlan0` shows `RX packets:0` for the entire
+boot session despite management-frame-level auth/assoc clearly working.  `wpa_supplicant`
+self-times-out after 10s and deauths with `reason=15` (4-Way Handshake timeout), repeating
+across ~5 attempts.
+
+Ruled out: wrong credentials (retested with cleartext password), AP-side ACL/config (works
+for every other device on the same AP), weak signal (`-48dBm`), and `wpa_supplicant`
+driver backend choice (`wext` alone failed differently -- scan itself never worked; both
+plain `nl80211` and the `nl80211,wext` fallback chain from this rootfs's own
+`/etc/wpa_supplicant/functions.sh` default scan/associate fine but hit the identical
+zero-RX-data-frames wall).  Hardware is `BCM4318 rev.2` (`ssb: Found chip with id 0x4318,
+rev 0x02`) via the `b43` driver in PIO mode (forced by SDIO transport, not the `pio`
+module parameter), firmware `666.2`.  No confirmed root cause; this looks like a
+kernel-level `b43`/`mac80211` data-frame RX bug specific to this chip, which would need
+real driver-level debugging, not a config change, to take further.  Shelved in favour of
+resuming the GX bisection; the physical SD-card-swap test loop remains the working method
+for now.
+
+`gcn_gx_init()` was temporarily commented out of `vifb_do_probe()` in `gcnfb.c` during the
+wifi work (to keep the console visible instead of stuck on the GX diagnostic pattern).  It
+has been restored (uncommitted revert nets to a no-op diff against this doc's prior state).
+
+Current test resumes Test A from the session's test-strategy plan: the constant-white
+diagnostic (`gx_setup_constant_white_state`, `gcn-gx.c`) draws an identity-projection
+triangle at clip-space `+/-4.0`, far outside the standard `+/-1` clip volume, while
+`GX_CLIP_ENABLE` is genuinely on (`XF 0x1005 = 0`, per the earlier polarity fix).  Every
+other permutation tried across the whole bisection (color/TEV/scissor/winding/
+quad-vs-triangle/XY-vs-XYZ) has failed to produce a visible EFB write -- consistent with
+the XF clipper silently discarding the whole triangle before rasterization, a structural
+cause rather than any single raster-state register.
+
+Test: flip `XF 0x1005` from `0` to `1` (`GX_CLIP_DISABLE`), changing nothing else in the
+diagnostic.
+
+- Frame 2 (`clear=true` readout) becomes white-derived instead of the known `9036...`
+  GX-green signature: confirmed -- the oversized clip-space geometry was being clipped
+  away the whole time.  Next: build a production path with geometry that stays inside the
+  real clip volume (a correct pixel-to-NDC projection, not permanently-disabled clipping).
+- Frame 2 remains the GX-green signature: clip-volume rejection is ruled out.  Move to a
+  static FIFO-byte-level audit against `libogc`'s `GX_Begin`/`GX_End` emission next, since
+  every raster-state permutation has now been exhausted and the remaining candidates are a
+  primitive-encoding bug (consumes FIFO bytes cleanly but describes zero real geometry) or
+  something not yet identified in PE/copy addressing.
+
+Commit `6002aa187cda` contains this diagnostic.  Deployed image SHA-256:
+
+```text
+e02ea422dde38ba0021fe166c27edcdb2d73b5cfc1a8edbe3b076bcd6b61fb00
+```
+
+Awaiting hardware result.
+
 ---
 
 ## Known pitfalls
