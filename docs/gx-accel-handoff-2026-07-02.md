@@ -2479,7 +2479,30 @@ Commit `222fc7d531da`, deployed image SHA-256:
 d6c9f71883e1541c44c8b29b89452eea15e4cc63a0a9113e800bcb2787f23973
 ```
 
-Awaiting hardware result.
+Result (checksum-verified on card): **mechanism validated.**
+
+```text
+gcn-gx: f1 perf0=triangles_passed count=0 (zero-draw control)
+```
+
+`count=0` with zero triangles submitted, exactly as required.  The clear write
+(`cp_write(CP_REG_CLR, 4)`), the CP register 32/33 offsets, and the `BP 0x23` selector
+encoding are all behaving correctly.
+
+**This means the earlier `count=0` reading from the actual Z-enable+XYZ triangle draw
+(previous section) is now trustworthy, not merely plausible.**  Combined: this is a
+validated, colour-independent, non-pixel-sample confirmation that our 2 submitted
+triangles genuinely do not pass culling / reach the rasterizer's fill stage -- consistent
+with, and now much more solidly evidencing, the "no visible EFB write" signature across
+this entire bisection.  Cull mode is confirmed `GX_CULL_NONE` (should not reject *any*
+triangle regardless of winding), so if the counter is measuring post-cull survival, the
+triangles must be getting rejected earlier in the pipeline than the cull stage --
+candidates: degenerate/zero-area triangle detection in primitive assembly, or a vertex
+transform (viewport/projection) producing a collapsed result despite the source vertex
+data being genuinely non-degenerate (three distinct clip-space points, verified in the
+FIFO byte audit).  This is a promising new, validated angle for the next session: verify
+what the rasterizer's triangle setup unit actually receives after the position transform,
+rather than continuing to vary raster/colour state.
 
 ### Wifi retest on independent hardware (same session)
 
