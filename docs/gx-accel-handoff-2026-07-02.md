@@ -2543,6 +2543,14 @@ before asking whether they pass or fail anything.  0 here would point at a struc
 primitive-recognition issue (despite the earlier byte-exact FIFO audit); 2 here would mean
 triangles are correctly recognized but rejected by some gate distinct from cull and clip.
 
+Commit `a67016814c88`, deployed image SHA-256:
+
+```text
+f563775c2a7c128d9d0bbb36b219dbf7f824fbe141074c672690b108fccf6e96
+```
+
+Awaiting hardware result.
+
 ### Wifi retest on independent hardware (same session)
 
 Separately, the wifi/ssh dead end from earlier this session was retested on a second,
