@@ -2295,7 +2295,41 @@ Commit `1fe09353a70a` contains this control test.  Deployed image SHA-256:
 9ef71ac8461d51016c94457d316cf89dc73104ae10ed487564e4b327ccd1d8cd
 ```
 
-Awaiting hardware result.
+## MAJOR FINDING: non-determinism confirmed -- treat prior single-boot conclusions cautiously
+
+Result (checksum-verified identical to the boot that produced mid-tone): **did not
+reproduce.**  Frame 2:
+
+```text
+gcn-gx: f2 diag=green-clear-f0-const-white-f1-clear-read-f2 xfb0=ad22c95e xfb1=ad269052 xfbc=72487238
+gcnfb: f2 post-gx-pre-cpu-fill fb0=ad22c95e fb1=ad269052 fbc=72487238
+```
+
+`xfbc=72487238` -- the "still green" signature, not the `8040802e` mid-tone this exact
+checksum-verified binary produced last time.  **The exact same command stream, sent to the
+same hardware, produced a different visible outcome on a different boot.**  Frame 0/1's
+`xfb0`/`xfb1` corner samples also differ from the previous boot of this same binary
+(`24845781`/`12703f95` here vs different values before) -- consistent with genuine run-to-
+run variance, not a fluke read.
+
+This is more significant than the TEV brightness puzzle itself.  It means the underlying
+assumption behind every binary test in this bisection -- same registers in, same result
+out -- does not reliably hold on this hardware/setup.  Practical implications:
+
+- The confusing three-way TEV pattern from the last two sessions (`ONE`/1x=near-black,
+  `HALF`/1x=mid-tone, `HALF`/2x=invisible) may not be three genuinely different causal
+  outcomes at all -- it could be the same non-determinism surfacing differently across
+  configs that don't actually matter causally.
+- Every single-boot "still green" / "ruled out" conclusion earlier in this document should
+  now be held more loosely.  A single negative result no longer safely means "this
+  register/config doesn't matter" -- it could just be this run's roll of whatever is
+  non-deterministic.
+- Before any further register-level bisection is trustworthy, the non-determinism itself
+  needs characterizing: is it a genuine hardware/timing race (e.g. in `gx_submit_cmds`'s
+  fixed `udelay` waits), leftover "mini" memory state that varies boot-to-boot, or
+  something else?  Candidate next step: reboot the *same* binary several times in a row
+  (no code changes) and tabulate how often each signature appears, to characterize the
+  failure rate/pattern before trusting any single result again.
 
 ### Wifi retest on independent hardware (same session)
 
