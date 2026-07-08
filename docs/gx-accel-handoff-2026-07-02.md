@@ -2431,7 +2431,37 @@ image SHA-256:
 
 Changes: `BP 0x40 = 0x40000017` (`GX_SetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE)`), `VAT0 =
 0x40000009` (`GX_POS_XYZ` instead of XY), `gx_draw_pos_quad` now emits `Z=0` per vertex to
-match.  Awaiting hardware result.
+match.
+
+First boot attempt produced a suspiciously short `dmesg.txt` (35 bytes, only the initial
+`init-diag: start` marker) and the user reported the console boot-looping during a phone
+call.  Given the severity, the change was reverted (`779ba45c3e88`) to restore a known-safe
+state, then un-reverted (`36b41231e447`, confirmed byte-identical source to `fd2ab314bb5c`
+via `git diff`) for a clean retry, since a single short log during an unattended boot-loop
+observation wasn't conclusive proof this specific change caused a crash.
+
+Retry result (same checksum-verified binary, second independent boot): **no hang** -- full
+254-line log, completed normally.  This strongly suggests the earlier short log was an
+early card pull during the phone-call session, not a real crash caused by this change.
+
+```text
+gcn-gx: f1 perf0=triangles_passed count=0
+gcn-gx: f2 diag=green-clear-f0-const-white-f1-clear-read-f2 xfb0=3556cfa7 xfb1=b33eda66 xfbc=8040802e
+```
+
+`triangles_passed=0` is a far more plausible reading than the earlier `3907289` (likely
+garbage from a boot that was mid-crash) -- consistent with, though not proof of, "triangles
+still never reach the rasterizer."  The perf-counter mechanism still has no independent
+zero-draw control test, so this remains suggestive rather than confirmed.
+
+`xfbc=8040802e` reappeared -- the exact same "mid-tone" value retracted earlier this session
+as sampling noise.  Per the methodology correction, this was **not** trusted at face value:
+asked the user to check the actual screen, and it was confirmed **green**, matching every
+other visual observation this session and confirming `xfbc=8040802e` really is sampling
+noise, not a real state, for a second independent time.
+
+**Conclusion: Z-enable + XYZ positions, matching the actual working devkitPro reference
+exactly, does not fix the bug.**  The primitive still produces no visible EFB write.
 
 ### Wifi retest on independent hardware (same session)
 
