@@ -2422,7 +2422,18 @@ way.  If this mechanism is revisited, it needs a proper control first: confirm t
 reads exactly 0 with the clear applied and *no* draw submitted, before trusting any non-zero
 reading as meaningful.  Deprioritized in favour of the Z-enable + XYZ-position test below.
 
-### Z-enable + XYZ-position test (matching the working devkitPro reference)
+Deployed the Z-enable + XYZ-position test described above.  Commit `fd2ab314bb5c`, deployed
+image SHA-256:
+
+```text
+1c4147662bc1e8f786e64728f59ef0c5a8a836ff89edab6b796f06de7e20861b
+```
+
+Changes: `BP 0x40 = 0x40000017` (`GX_SetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE)`), `VAT0 =
+0x40000009` (`GX_POS_XYZ` instead of XY), `gx_draw_pos_quad` now emits `Z=0` per vertex to
+match.  Awaiting hardware result.
+
+### Wifi retest on independent hardware (same session)
 
 Separately, the wifi/ssh dead end from earlier this session was retested on a second,
 freshly-imaged SD card (independent rootfs from the one used throughout the rest of this
