@@ -1162,34 +1162,31 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		fifo_pos = 0;
 		gx_setup_constant_white_state(width, height);
 		/*
-		 * DIAGNOSTIC: the perf-counter mechanism (CP_REG_CLR clear,
-		 * CP register 32/33 readback) is now validated -- a zero-draw
-		 * control read back exactly 0.  GX_PERF0_TRIANGLES_PASSED
-		 * with a real 2-triangle draw also validated-read 0: our
-		 * triangles genuinely never pass culling/reach the
-		 * rasterizer.  Cull mode is confirmed GX_CULL_NONE (should
-		 * never reject any triangle), so the rejection must happen
-		 * earlier in the pipeline.  Test directly: select
-		 * GX_PERF0_CLIP_VTX (libogc's exact encoding, XF 0x1006 =
-		 * 0x0000016b, NOT a BP write for this metric) to count how
-		 * many of our 6 submitted vertices the XF clip stage
-		 * actually clips.  6 clipped -> the clip stage is rejecting
-		 * everything despite the earlier (never full-frame-verified)
-		 * clip-disable test suggesting otherwise; 0 clipped -> clip
-		 * is not the rejector, look at primitive/triangle-setup
-		 * assembly instead.
+		 * DIAGNOSTIC: both GX_PERF0_TRIANGLES_PASSED and
+		 * GX_PERF0_CLIP_VTX have validated-read 0 for our 2-triangle
+		 * draw -- cull mode (confirmed GX_CULL_NONE) and the XF clip
+		 * stage are both ruled out as the rejector with real
+		 * evidence.  Test the most fundamental checkpoint next:
+		 * GX_PERF0_TRIANGLES (libogc encoding BP 0x2300AE7F) counts
+		 * total triangles seen by the GP, unconditional of any
+		 * pass/fail/cull gate.  0 here would point at a structural
+		 * primitive-recognition issue despite the earlier byte-exact
+		 * FIFO audit against libogc's GX_Begin/GX_Position2f32/
+		 * GX_End emission; 2 here would mean triangles are correctly
+		 * recognized but rejected by some gate distinct from cull
+		 * and clip.
 		 */
-		gx_load_xf_reg(0x1006, 0x0000016b);
+		gx_load_bp_reg(0x2300AE7F);
 		cp_write(CP_REG_CLR, 4);
 		gx_draw_pos_quad(width, height);
 		gx_submit_cmds();
 		{
-			u32 clip_vtx =
+			u32 triangles_total =
 				((u32)cp_read(CP_REG_PERF0_HI) << 16) |
 				cp_read(CP_REG_PERF0_LO);
 
-			pr_info("gcn-gx: f%u perf0=clip_vtx count=%u\n",
-				phase, clip_vtx);
+			pr_info("gcn-gx: f%u perf0=triangles_total count=%u\n",
+				phase, triangles_total);
 		}
 	} else if (phase == 2) {
 		fifo_pos = 0;
