@@ -1143,8 +1143,30 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	} else if (phase == 1) {
 		fifo_pos = 0;
 		gx_setup_constant_white_state(width, height);
+		/*
+		 * DIAGNOSTIC: select GX_PERF0_TRIANGLES_PASSED (BP 0x23,
+		 * libogc's exact encoding 0x23009E7F -- a pure hardware
+		 * perf-counter select, verified via GX_SetGPMetric() to have
+		 * no effect on actual rendering) and clear the counter before
+		 * the draw.  This gives a direct, colour-independent answer:
+		 * did our 2 triangles actually pass culling and reach the
+		 * rasterizer, or were they rejected before that stage?  This
+		 * sidesteps the whole TEV/colour readout question, and the
+		 * pixel-sampling reliability problem found earlier this
+		 * session, entirely.
+		 */
+		gx_load_bp_reg(0x23009E7F);
+		cp_write(CP_REG_CLR, 4);
 		gx_draw_pos_quad(width, height);
 		gx_submit_cmds();
+		{
+			u32 triangles_passed =
+				((u32)cp_read(CP_REG_PERF0_HI) << 16) |
+				cp_read(CP_REG_PERF0_LO);
+
+			pr_info("gcn-gx: f%u perf0=triangles_passed count=%u\n",
+				phase, triangles_passed);
+		}
 	} else if (phase == 2) {
 		fifo_pos = 0;
 		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);

@@ -45,6 +45,14 @@
 #define CP_REG_WT_HI		27
 #define CP_REG_RD_LO		28
 #define CP_REG_RD_HI		29
+/*
+ * GX_ReadGPMetric() (libogc) reads _cpReg[32]/[33] as a 32-bit
+ * perf-counter value (16-bit low/high halves), tied to whatever
+ * GX_SetGPMetric() (BP 0x23, GX_PERF0_*) last selected. Index-to-byte
+ * mapping matches CP_REG_RD_LO/HI above (index*2 = byte offset).
+ */
+#define CP_REG_PERF0_LO		32	/* byte offset 0x40 */
+#define CP_REG_PERF0_HI		33	/* byte offset 0x42 */
 
 /* CP control register bits */
 #define CP_CR_GPRESET		BIT(0)	/* GP FIFO read enable */
