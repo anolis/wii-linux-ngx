@@ -2574,7 +2574,41 @@ Commit `1e7257591707`, deployed image SHA-256:
 8fc005dc3b8aff89b529bf0ce27eaaef283773369db1ef9a7a4b1adef52f8fb6
 ```
 
-Awaiting hardware result.
+Result (checksum-verified on card): **`count=0` -- negative result on the positive
+control.**
+
+```text
+gcn-gx: f1 perf0=vertices_total count=0
+```
+
+Zero, despite a genuine 6-vertex draw submitted.  This fails the positive control.
+
+## RETRACTION: the entire perf-counter diagnostic line this session is unvalidated
+
+Since `GX_PERF0_VERTICES` reads 0 even for a real draw with real vertex data, the same
+readback mechanism (`CP_REG_CLR` clear write, CP register 32/33 offsets, `BP 0x23`/`XF
+0x1006` selector encodings) could equally be producing false zeros for every other metric
+tried this session.  **Retract as unreliable, not confirmed findings:**
+`triangles_passed=0`, `clip_vtx=0`, `triangles_total=0`.  None of the conclusions drawn from
+them (cull ruled out, clip ruled out, primitive recognition broken) are supported anymore --
+they may simply reflect a counter that never increments at all, regardless of what's
+submitted.
+
+This should have been caught earlier: the positive control (does the counter show a
+non-zero value for known real activity) should have been run *before* drawing conclusions
+from the mechanism, not after four rounds of results built on top of it.  The zero-draw
+control alone (proving "0 in -> 0 out") was insufficient and this session initially
+over-trusted it as full validation.
+
+**Where this actually leaves the bug:** back to the pre-perf-counter state.  The FIFO-byte
+encoding audit (Test B, statically verified byte-exact against libogc, not hardware-sampled)
+remains the one genuinely solid piece of evidence from deep in this bisection.  Colour/pixel
+sampling requires full-frame HDMI capture to trust (rig confirmed working earlier this
+session).  The GX_PERF0 counter mechanism needs real hardware debugging (e.g. checking
+whether `GX_DrawDone()`-style PE interrupt synchronization is required before the counter
+value is actually latched/readable, which this driver's polling-only `gx_submit_cmds()`
+never provides) before it can be trusted for anything again -- not assumed working from a
+zero-draw check alone.
 
 ### Wifi retest on independent hardware (same session)
 
