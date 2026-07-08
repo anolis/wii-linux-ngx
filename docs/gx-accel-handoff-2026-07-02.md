@@ -2463,6 +2463,24 @@ noise, not a real state, for a second independent time.
 **Conclusion: Z-enable + XYZ positions, matching the actual working devkitPro reference
 exactly, does not fix the bug.**  The primitive still produces no visible EFB write.
 
+### Perf-counter mechanism validation: zero-draw control test
+
+Before trusting the `GX_PERF0_TRIANGLES_PASSED` counter for anything further, it needs
+independent validation.  Deployed a zero-draw control: submit only the counter select+clear
+(`BP 0x23009E7F` + `cp_write(CP_REG_CLR, 4)`), with the triangle draw itself skipped
+entirely, then read back.  If the mechanism (clear write, CP register 32/33 offsets, BP 0x23
+selector encoding) is correct, this **must** read exactly 0, since zero triangles were ever
+submitted.  Any other value proves the mechanism itself is unreliable, independent of what
+any future non-zero reading might otherwise seem to show.
+
+Commit `222fc7d531da`, deployed image SHA-256:
+
+```text
+d6c9f71883e1541c44c8b29b89452eea15e4cc63a0a9113e800bcb2787f23973
+```
+
+Awaiting hardware result.
+
 ### Wifi retest on independent hardware (same session)
 
 Separately, the wifi/ssh dead end from earlier this session was retested on a second,
