@@ -2525,7 +2525,23 @@ Commit `fd164bf18193`, deployed image SHA-256:
 e161a598cc810c3d91e1d05a3bea29562ec03ebece6f8456dbe54c60d8be25d2
 ```
 
-Awaiting hardware result.
+Result (checksum-verified on card): **`count=0`.**
+
+```text
+gcn-gx: f1 perf0=clip_vtx count=0
+```
+
+Zero vertices clipped, with clip genuinely enabled.  This is a real, validated (not
+pixel-sampled) result: **the XF clip stage is definitively not the rejector.**  Combined
+with the validated `triangles_passed=0`, both cull mode and clip are now ruled out with
+real evidence, not inference.
+
+Next: test `GX_PERF0_TRIANGLES` (total triangles seen by the GP, unconditional of any
+pass/fail/cull gate -- libogc encoding `BP 0x2300AE7F`) to check the most fundamental
+checkpoint: does the GP even recognize our FIFO submission as 2 valid triangles at all,
+before asking whether they pass or fail anything.  0 here would point at a structural
+primitive-recognition issue (despite the earlier byte-exact FIFO audit); 2 here would mean
+triangles are correctly recognized but rejected by some gate distinct from cull and clip.
 
 ### Wifi retest on independent hardware (same session)
 
