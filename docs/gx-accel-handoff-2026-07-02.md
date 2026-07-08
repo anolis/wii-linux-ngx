@@ -2239,7 +2239,41 @@ Commit `c35cc26f7099` contains this diagnostic.  Deployed image SHA-256:
 ee48fb8fcb816bdcecaa3075df572dc4a89651f1baf271f8ccea11a1e30d105a
 ```
 
-Awaiting hardware result.
+Result (checksum-verified on card): **neither predicted branch.**  Frame 2:
+
+```text
+gcn-gx: f2 diag=green-clear-f0-const-white-f1-clear-read-f2 xfb0=90369122 xfb1=91389022 xfbc=72487238
+gcnfb: f2 post-gx-pre-cpu-fill fb0=90369122 fb1=91389022 fbc=72487238
+```
+
+`xfbc=72487238` is back to the exact "still green" signature -- the primitive produced
+**zero visible effect**, matching the original pre-BP-0x42 baseline.  Full picture across
+the three TEV variants tried this session, all otherwise identical (no-channel, position-
+only, oversized clip-space triangles, clip enabled):
+
+| `d` input | scale | Result |
+|-----------|-------|--------|
+| `GX_CC_ONE` (1.0) | 1x | near-black, `xfbc=1f781f75` (writes, wrong colour) |
+| `GX_CC_HALF` (0.5) | 1x | mid-tone, `xfbc=8040802e` (writes, roughly-correct colour) |
+| `GX_CC_HALF` (0.5) | 2x | still green, `xfbc=72487238` (no write at all) |
+
+This complicates the "1.0-boundary clamp" hypothesis: a pure value-clamp bug should still
+produce some visible (if wrong) pixel output, as the `d=ONE` case did, not complete
+invisibility matching the original no-write signature.  The scale-field bit math was
+re-checked against `GX_SetTevColorOp`'s exact shift/mask (`tevscale`=bits[21:20],
+`tevregid`=bits[23:22]) and is correct -- `0xC018FFFD` does encode what was intended, so
+this isn't a simple encoding mistake.
+
+Open question for next session: why does reaching intended brightness 1.0 via
+`HALF`+`scale=2x` produce *no write at all*, while reaching a lower intended brightness
+(0.5) via `HALF`+`scale=1x` writes correctly, and reaching 1.0 directly via the `ONE`
+constant writes but with wrong colour?  Three genuinely different outcomes from three
+closely related configurations -- this needs a fresh look rather than another blind
+single-bit variation.  Candidates: re-confirm `HALF`+`scale=1x` still reproduces the
+mid-tone result (control/sanity check, rule out build or card-state drift); try reaching
+1.0 via `GX_TB_ADDHALF` bias instead of scale (`0.5 + 0.5 = 1.0` through yet another
+independent path); or step back from single-bit TEV micro-variation entirely and consider
+whether this fine a grain of detail is the best use of further hardware cycles right now.
 
 ### Wifi retest on independent hardware (same session)
 
