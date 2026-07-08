@@ -2210,14 +2210,36 @@ gcnfb: f2 post-gx-pre-cpu-fill fb0=90369122 fb1=ad2e903a fbc=8040802e
 so the near-black result from `d=GX_CC_ONE` is a real, formula-specific behaviour, not
 something ignoring TEV entirely.
 
-Open puzzle to carry into the next session: the relationship is inverted from naive
-expectation.  `d=GX_CC_ONE` (1.0) produced *darker* output (Y~=31) than `d=GX_CC_HALF`
-(0.5, Y~=128) -- more should be brighter, not less, if this were a simple linear scale.
-Worth checking next: try `d=GX_CC_ZERO` (should land near TV-black, Y~=16, as a third
-reference point) to characterize whether this is a clamp/overflow specific to values at or
-above 1.0, or something else entirely (e.g. re-examine the alpha combiner's exact bit
-layout -- BP 0xC1's current value was decoded loosely during this session and not fully
-verified bit-for-bit the way BP 0xC0 was).
+Open puzzle: the relationship is inverted from naive expectation.  `d=GX_CC_ONE` (1.0)
+produced *darker* output (Y~=31) than `d=GX_CC_HALF` (0.5, Y~=128) -- more should be
+brighter, not less, if this were a simple linear scale.
+
+Re-verified BP 0xC1 (alpha combiner) bit-for-bit this session (it had only been decoded
+loosely during the CC_HALF analysis): all four inputs (`a`,`b`,`c`,`d`) are genuinely
+`GX_CA_ZERO(7)`, formula ADD, scale=1, bias=0, clamp=on, output to TEVPREV -- confirmed
+correct, matching the "alpha=ZERO" intent exactly.  Alpha is ruled out as a factor in the
+brightness puzzle.
+
+Leading hypothesis for the inversion: TEV's internal fixed-point math clamps or wraps
+specifically at/above the 1.0 boundary, rather than `GX_CC_ONE`'s input-select encoding
+being wrong (already verified against libogc: value 12, matches exactly).  Test: reach the
+same *intended* final brightness (1.0) via a different computational path -- keep
+`d=GX_CC_HALF` (0.5, confirmed safe) but change TEV scale from `GX_CS_SCALE_1` to
+`GX_CS_SCALE_2` (2x), so `0.5 * 2 = 1.0` through the scale multiplier instead of selecting
+the ONE constant directly.
+
+- Near-black again: confirms a hardware/fixed-point clamp or overflow at the 1.0 boundary
+  regardless of which path reaches it.
+- Genuine bright/white output: isolates the bug specifically to `GX_CC_ONE`'s input-select
+  path, not general 1.0-valued TEV output.
+
+Commit `c35cc26f7099` contains this diagnostic.  Deployed image SHA-256:
+
+```text
+ee48fb8fcb816bdcecaa3075df572dc4a89651f1baf271f8ccea11a1e30d105a
+```
+
+Awaiting hardware result.
 
 ### Wifi retest on independent hardware (same session)
 
