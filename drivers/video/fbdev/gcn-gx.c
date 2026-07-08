@@ -692,10 +692,24 @@ static void gx_setup_constant_white_state(u16 width, u16 height)
 	gx_load_bp_reg(0x59000000);	/* GX_SetScissorBoxOffset(0, 0) */
 
 	/*
-	 * DIAGNOSTIC: no vertex-colour dependency.  TEV outputs constant
-	 * white from GX_CC_ONE with no raster colour and no texture fetch.
+	 * DIAGNOSTIC: with BP 0x42 (dst-alpha) now initialised, this exact
+	 * no-channel/CC_ONE diagnostic stopped reading back the "still green"
+	 * (no-write) signature for the first time in this whole bisection --
+	 * it now reads back the historical "near-black" signature (xfbc
+	 * decodes to Y~=31, near-neutral chroma) instead, matching a
+	 * convergent near-black result seen much earlier in this project
+	 * across totally different colour-channel configs.  TEV should
+	 * mathematically output pure white here (a=b=c=ZERO, d=ONE, add,
+	 * scale=1, bias=0, clamp=on -- verified bit-for-bit against libogc),
+	 * so the discrepancy is downstream of or unrelated to this formula.
+	 * Swap d from GX_CC_ONE(12) to GX_CC_HALF(13) -- a one-bit register
+	 * change -- to test whether TEV programming is actually being
+	 * respected at all: mid-gray output confirms it is (and the
+	 * near-black result is a real, separate bug); an unchanged near-black
+	 * readout means the TEV-computed colour is being overridden
+	 * downstream (PE write path or copy/YUYV conversion), not by TEV.
 	 */
-	gx_load_bp_reg(0xC008FFFC);	/* a=b=c=ZERO, d=GX_CC_ONE */
+	gx_load_bp_reg(0xC008FFFD);	/* a=b=c=ZERO, d=GX_CC_HALF */
 	gx_load_bp_reg(0xC108FFF0);	/* alpha = ZERO */
 	gx_load_bp_reg(0x25000380);	/* raschan = GX_COLOR_NULL, tex disabled */
 
