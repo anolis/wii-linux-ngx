@@ -695,7 +695,19 @@ static void gx_setup_constant_white_state(u16 width, u16 height)
 	gx_load_xf_reg(0x1009, 0x00000000);
 	gx_load_xf_reg(0x100e, 0x00000401);
 	gx_load_xf_reg(0x1010, 0x00000401);
-	gx_load_xf_reg(0x1005, 0);	/* GX_SetClipMode(GX_CLIP_ENABLE) */
+	/*
+	 * DIAGNOSTIC (clip-volume rejection test): this draw uses an identity
+	 * orthographic projection with vertices at clip-space +/-4.0
+	 * (gx_draw_pos_quad), far outside the standard +/-1 clip volume. With
+	 * clip genuinely enabled (0 here, per the fixed GX_CLIP_ENABLE
+	 * polarity), the XF clipper may be silently discarding the whole
+	 * triangle before rasterization -- every other permutation tried
+	 * (color/TEV/scissor/winding/quad-vs-triangle/XY-vs-XYZ) has failed to
+	 * produce a visible EFB write, which is consistent with a structural
+	 * rejection like this rather than any one raster-state register.
+	 * GX_CLIP_DISABLE=1 here tests that hypothesis directly.
+	 */
+	gx_load_xf_reg(0x1005, 1);	/* GX_SetClipMode(GX_CLIP_DISABLE) */
 	gx_load_xf_reg(0x103f, 0);
 
 	gx_load_identity_pos_mtx0();
