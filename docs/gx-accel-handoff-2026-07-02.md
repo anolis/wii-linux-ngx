@@ -2407,10 +2407,22 @@ addressing via `GX_SetArray`/CP array-base-and-stride registers, not our `DIRECT
 -- not considered relevant since direct mode is a distinct, valid path, but flagged in case
 it becomes relevant later.
 
-Awaiting hardware result for the perf-counter read.  Next test to prepare: Z-enable +
-XYZ-position combination described above.
+Result (checksum-verified on card): **inconclusive, not trustworthy.**
 
-### Wifi retest on independent hardware (same session)
+```text
+gcn-gx: f1 perf0=triangles_passed count=3907289
+```
+
+`count=3907289` is physically implausible for a draw of 2 triangles.  This was the first-ever
+use of this readback mechanism in this driver, with no prior verified control test, so there
+is no way to know whether the `CP_REG_CLR` clear write, the CP register 32/33 offsets, or the
+`BP 0x23` selector encoding is actually correct versus reading an unrelated counter (a clock-
+cycle count would plausibly be in the millions).  Do not read anything into this number either
+way.  If this mechanism is revisited, it needs a proper control first: confirm the counter
+reads exactly 0 with the clear applied and *no* draw submitted, before trusting any non-zero
+reading as meaningful.  Deprioritized in favour of the Z-enable + XYZ-position test below.
+
+### Z-enable + XYZ-position test (matching the working devkitPro reference)
 
 Separately, the wifi/ssh dead end from earlier this session was retested on a second,
 freshly-imaged SD card (independent rootfs from the one used throughout the rest of this
