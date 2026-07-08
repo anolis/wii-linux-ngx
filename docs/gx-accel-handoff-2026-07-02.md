@@ -2549,7 +2549,24 @@ Commit `a67016814c88`, deployed image SHA-256:
 f563775c2a7c128d9d0bbb36b219dbf7f824fbe141074c672690b108fccf6e96
 ```
 
-Awaiting hardware result.
+Result (checksum-verified on card): **`count=0` again.**
+
+```text
+gcn-gx: f1 perf0=triangles_total count=0
+```
+
+The GP does not recognize our submission as any valid triangles at all, unconditional of
+pass/fail/cull/clip.  More fundamental than either previous result.
+
+Important gap noticed in the earlier "validation": the zero-draw control only proved
+"0 draws in -> 0 count out" -- it cannot distinguish a genuinely working counter from a
+counter that is simply stuck at 0 regardless of input, since both give the identical result
+for a zero-draw case.  A real positive control is needed.  Next: select `GX_PERF0_VERTICES`
+(libogc encoding `XF 0x1006 = 0x0000014a`, value `0`) with the same 6-vertex draw.  If this
+reads 6, that is genuine positive proof the counter mechanism works (individual vertices are
+being processed by the GP), even if triangle *assembly* specifically is not happening -- a
+real, useful distinction.  If this also reads 0, either the counter mechanism itself isn't
+trustworthy after all, or no vertex processing is happening at all (a much deeper issue).
 
 ### Wifi retest on independent hardware (same session)
 
