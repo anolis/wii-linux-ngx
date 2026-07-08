@@ -2230,6 +2230,13 @@ is further (not conclusive) evidence the wifi issue is a genuine kernel-level `b
 bug rather than a config or corruption issue local to one SD card.  Wifi remains shelved;
 resuming the GX bisection (Test B above) is the active thread.
 
+Since wifi is confirmed to need real driver-level effort rather than a config fix, the
+`wait_for_wlan0`/carrier-poll/`wpa_supplicant`/`dhclient` block was removed from
+`/init-diag.sh` on the SD card (not tracked in this repo) to bring the boot-to-shell cycle
+back down from ~2.5 minutes worst-case to the original ~20-25s.  The script now just does
+the `sleep 20` dmesg capture, LED blink, and console shell, matching the pre-wifi-detour
+form described earlier in this doc.
+
 ---
 
 ## Known pitfalls
