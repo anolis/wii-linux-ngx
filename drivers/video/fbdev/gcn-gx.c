@@ -661,19 +661,7 @@ static void gx_setup_constant_white_state(u16 width, u16 height)
 {
 	u32 xo, yo;
 
-	/*
-	 * DIAGNOSTIC: the actual devkitPro wii-examples GX triangle demo
-	 * (graphics/gx/triangle/source/triangle.c, fetched as a known-working
-	 * reference) enables Z-testing -- GX_SetZMode(GX_TRUE, GX_LEQUAL,
-	 * GX_TRUE) -- with GX_POS_XYZ vertices, unlike our long-standing
-	 * Z-disabled/XY-only setup.  Our copy-clear already writes BP 0x51 =
-	 * 0x00ffffff (Z-clear to far/max), so a Z=0 (near) vertex should pass
-	 * LEQUAL cleanly -- no obvious confound.  This exact combination (Z
-	 * enabled + XYZ together) has not been tried; earlier XYZ-position
-	 * tests in this project used Z disabled.  bit0=enable(1),
-	 * bits[3:1]=func(GX_LEQUAL=3)<<1=0x6, bit4=update(1)<<4=0x10 -> 0x17.
-	 */
-	gx_load_bp_reg(0x40000017);	/* GX_SetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE) */
+	gx_load_bp_reg(0x40000000);	/* Z disabled */
 	gx_load_bp_reg(0x41000018);	/* colour/alpha update enabled */
 	/*
 	 * DIAGNOSTIC (PE control-block gap test): BP 0x42 (peCMode1 / dst-alpha)
@@ -751,13 +739,10 @@ static void gx_setup_constant_white_state(u16 width, u16 height)
 	wg_f32_bits(F32_ZERO);
 	gx_wr32be(1);
 
-	/*
-	 * VCD/VAT: direct XYZ position (matching the Z-enable test above).
-	 * VAT0 bit0=GX_POS_XYZ(1), bits[3:1]=GX_F32(4)<<1=0x08 -> 0x09.
-	 */
+	/* VCD/VAT: direct XY position only. */
 	gx_load_cp_reg(0x50, 0x0200);
 	gx_load_cp_reg(0x60, 0x0000);
-	gx_load_cp_reg(0x70, 0x40000009);
+	gx_load_cp_reg(0x70, 0x40000008);
 	gx_load_cp_reg(0x80, 0x80000000);
 	gx_load_cp_reg(0x90, 0x00000000);
 }
@@ -865,20 +850,17 @@ static void gx_draw_pos_quad(u16 width, u16 height)
 	/*
 	 * DIAGNOSTIC: oversized clip-space triangles, both windings.  This avoids
 	 * pixel-space projection/ortho uncertainty and stale cull winding state.
-	 * Z=0 (near plane) per vertex, matching VAT0's GX_POS_XYZ format and
-	 * the Z-enable test in gx_setup_constant_white_state -- see there for
-	 * why Z=0 should cleanly pass GX_LEQUAL against the far/max Z-clear.
 	 */
 	gx_wr8(0x90);			/* GX_TRIANGLES | vtxfmt 0 */
 	gx_wr16be(6);
 
-	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO); /* (-4, -4, 0) */
-	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO); /* ( 4, -4, 0) */
-	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); wg_f32_bits(F32_ZERO); /* ( 0,  4, 0) */
+	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); /* (-4, -4) */
+	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); /* ( 4, -4) */
+	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); /* ( 0,  4) */
 
-	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO); /* (-4, -4, 0) */
-	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); wg_f32_bits(F32_ZERO); /* ( 0,  4, 0) */
-	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); wg_f32_bits(F32_ZERO); /* ( 4, -4, 0) */
+	wg_f32_bits(0xC0800000); wg_f32_bits(0xC0800000); /* (-4, -4) */
+	wg_f32_bits(F32_ZERO);   wg_f32_bits(0x40800000); /* ( 0,  4) */
+	wg_f32_bits(0x40800000); wg_f32_bits(0xC0800000); /* ( 4, -4) */
 }
 
 static void gx_draw_color_quad(u16 width, u16 height, u8 r, u8 g, u8 b)
