@@ -2109,6 +2109,55 @@ command stream as describing zero real geometry) rather than any raster/PE/clip 
 This needs no new hardware boot; it can be done by inspecting the emitted bytes and
 comparing against `/home/anolis/repos/libogc/libogc/gx.c`.
 
+### Test B: FIFO-byte/encoding audit result, and a new structural-gap finding
+
+Performed the static audit against `libogc`.  The primitive draw command itself
+(`gx_draw_pos_quad`) checks out byte-for-byte: opcode `0x90` matches `GX_TRIANGLES`
+exactly, the 16-bit big-endian vertex count matches `GX_Begin`'s `wgPipe->U16 = vtxcnt`,
+and the per-vertex payload (two `f32`s, no color/tex data) matches `GX_Position2f32`
+exactly, consistent with the currently active VAT0 (`pos cnt=XY, type=F32`) and empty VCD.
+`GX_End()` is a no-op in libogc (no closing/padding token required).  Test B as originally
+scoped -- a primitive-encoding bug -- is ruled out.
+
+Widened the audit while there: `gx_submit_cmds()` is the identical shared function used for
+both the (working) copy-clear submission and the (failing) primitive-only submission, so
+the bug cannot be in the FIFO submission mechanism itself -- that would break copy-clear
+too.  It has to be something specific to the primitive-draw FIFO's content.
+
+Checked `GX_SetCullMode`/genMode bits `[15:14]` against our `genMode = 0x00000000`: cull is
+explicitly `GX_CULL_NONE` (hw value 0) in our code, not a leftover "mini" state -- ruled
+out, no test needed.
+
+Found a genuine structural gap by diffing `__GX_InitGX()`'s full default-state sequence
+against every BP register this driver has ever written: **BP 0x42** (`peCMode1`,
+destination alpha) is never written anywhere in `gcn-gx.c`.  It sits directly between BP
+0x41 (BLENDMODE, a confirmed pixel-discard trap per Known pitfalls below) and BP 0x43
+(PE_CONTROL, which we do set) in the same PE control-register block.  libogc's
+`__GX_InitGX()` explicitly initializes it via `GX_SetDstAlpha(GX_DISABLE, 0)`.  This is a
+gap, not just an untested value -- every raster-state permutation tried across this entire
+bisection shares it, since it has simply never been part of any diagnostic's init sequence.
+
+Test: add `gx_load_bp_reg(0x42000000)` (dst-alpha disabled, matching libogc's default)
+to `gx_setup_constant_white_state`, changing nothing else.  Also reverted `XF 0x1005` back
+to `GX_CLIP_ENABLE` (Test A's ruled-out clip-disable is no longer needed) to keep this a
+clean, single-variable test against the last confirmed baseline.
+
+- Frame 2 becomes white-derived: found it -- an uninitialized dst-alpha register was gating
+  pixel writes.  Next: understand the exact mechanism and set this correctly across all
+  code paths, not just this diagnostic.
+- Frame 2 remains the "still green" signature: ruled out.  Continue the `__GX_InitGX()`
+  diff for other completely-untouched registers (candidates not yet checked: fog registers
+  BP ~0xEE-0xFF, Z-texture BP ~0xF5 region though Z-compare is already disabled so this is
+  lower priority, TEV swap-mode table BP 0xF6-0xFD).
+
+Commit `d7af01f74d3a` contains this diagnostic.  Deployed image SHA-256:
+
+```text
+5561e87c75d4e8a25adc63156072d549c0c198240f5be50263f87b4c9a708d55
+```
+
+Awaiting hardware result.
+
 ### Wifi retest on independent hardware (same session)
 
 Separately, the wifi/ssh dead end from earlier this session was retested on a second,
