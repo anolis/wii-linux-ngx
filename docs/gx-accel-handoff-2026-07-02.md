@@ -2197,7 +2197,27 @@ Commit `27c0bcf9eeec` contains this diagnostic.  Deployed image SHA-256:
 fc66b633a50b858bbaaf9d93523a1a20898e2c12a0645be39f17389ea5ffa2e1
 ```
 
-Awaiting hardware result.
+Result (checksum-verified on card): **TEV programming is respected.**  Frame 2:
+
+```text
+gcn-gx: f2 diag=green-clear-f0-const-white-f1-clear-read-f2 xfb0=90369122 xfb1=ad2e903a xfbc=8040802e
+gcnfb: f2 post-gx-pre-cpu-fill fb0=90369122 fb1=ad2e903a fbc=8040802e
+```
+
+`xfbc=8040802e` decodes to Y~=128 (mid-tone) -- a third, distinct value from both the
+"still green" family and the near-black `1f781f75` from `d=GX_CC_ONE`.  This confirms the
+"downstream override" branch is ruled out: TEV's `d` input genuinely changes the readout,
+so the near-black result from `d=GX_CC_ONE` is a real, formula-specific behaviour, not
+something ignoring TEV entirely.
+
+Open puzzle to carry into the next session: the relationship is inverted from naive
+expectation.  `d=GX_CC_ONE` (1.0) produced *darker* output (Y~=31) than `d=GX_CC_HALF`
+(0.5, Y~=128) -- more should be brighter, not less, if this were a simple linear scale.
+Worth checking next: try `d=GX_CC_ZERO` (should land near TV-black, Y~=16, as a third
+reference point) to characterize whether this is a clamp/overflow specific to values at or
+above 1.0, or something else entirely (e.g. re-examine the alpha combiner's exact bit
+layout -- BP 0xC1's current value was decoded loosely during this session and not fully
+verified bit-for-bit the way BP 0xC0 was).
 
 ### Wifi retest on independent hardware (same session)
 
