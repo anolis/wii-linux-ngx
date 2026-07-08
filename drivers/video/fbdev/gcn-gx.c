@@ -692,26 +692,15 @@ static void gx_setup_constant_white_state(u16 width, u16 height)
 	gx_load_bp_reg(0x59000000);	/* GX_SetScissorBoxOffset(0, 0) */
 
 	/*
-	 * DIAGNOSTIC: d=GX_CC_ONE (1.0) read back near-black (Y~=31); swapping
-	 * to d=GX_CC_HALF (0.5) read back mid-tone (Y~=128) -- confirming TEV
-	 * is respected, but inverted from naive expectation (ONE darker than
-	 * HALF).  Leading hypothesis: TEV's internal fixed-point math clamps
-	 * or wraps specifically at/above the 1.0 boundary, rather than
-	 * GX_CC_ONE's input-select encoding itself being wrong (already
-	 * verified against libogc: value 12, matches).
-	 *
-	 * This test reaches the same *intended* final brightness (1.0) via a
-	 * different computational path: d=GX_CC_HALF (0.5, confirmed safe)
-	 * with TEV scale=GX_CS_SCALE_2 (2x) instead of selecting the ONE
-	 * constant directly.  0.5 * 2 = 1.0 through the scale multiplier.
-	 *
-	 * - Near-black again (matching the CC_ONE result): confirms a
-	 *   hardware/fixed-point clamp or overflow at the 1.0 boundary,
-	 *   regardless of which path reaches it.
-	 * - Genuine bright/white output: isolates the bug specifically to
-	 *   GX_CC_ONE's input-select path, not general 1.0-valued output.
+	 * DIAGNOSTIC (control/sanity check): d=ONE gave near-black, d=HALF
+	 * scale=1x gave mid-tone, d=HALF scale=2x gave complete invisibility
+	 * (still-green, no write) -- three non-obviously-related outcomes.
+	 * Before trusting any of them further, re-deploy the exact d=HALF
+	 * scale=1x configuration unchanged to confirm the mid-tone result is
+	 * still reproducible (rules out build/card-state drift as a
+	 * confound). See docs/gx-accel-handoff-2026-07-02.md.
 	 */
-	gx_load_bp_reg(0xC018FFFD);	/* a=b=c=ZERO, d=GX_CC_HALF, scale=2x */
+	gx_load_bp_reg(0xC008FFFD);	/* a=b=c=ZERO, d=GX_CC_HALF, scale=1x */
 	gx_load_bp_reg(0xC108FFF0);	/* alpha = ZERO */
 	gx_load_bp_reg(0x25000380);	/* raschan = GX_COLOR_NULL, tex disabled */
 
