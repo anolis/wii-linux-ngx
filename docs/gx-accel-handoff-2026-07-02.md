@@ -2504,6 +2504,29 @@ FIFO byte audit).  This is a promising new, validated angle for the next session
 what the rasterizer's triangle setup unit actually receives after the position transform,
 rather than continuing to vary raster/colour state.
 
+### Direct clip-stage test with the validated counter: GX_PERF0_CLIP_VTX
+
+Used the now-validated mechanism to directly test the XF clip stage, rather than relying on
+the earlier clip-disable test (which was never independently confirmed with full-frame
+capture before this session's methodology correction).  Selected `GX_PERF0_CLIP_VTX`
+(libogc's exact encoding, `XF 0x1006 = 0x0000016b` -- this metric is selected via an XF
+write, not BP, per `GX_SetGPMetric()`) and read back after the real 6-vertex draw, with clip
+currently enabled (`XF 0x1005 = 0`, confirmed in the active diagnostic).
+
+- 6 vertices clipped: the XF clip stage is rejecting everything, contradicting the earlier
+  (unverified) clip-disable result -- would need to redo that test properly with the
+  validated counter instead of pixel sampling.
+- 0 vertices clipped: rules out clipping as the rejector for real this time; look at
+  primitive/triangle-setup assembly instead.
+
+Commit `fd164bf18193`, deployed image SHA-256:
+
+```text
+e161a598cc810c3d91e1d05a3bea29562ec03ebece6f8456dbe54c60d8be25d2
+```
+
+Awaiting hardware result.
+
 ### Wifi retest on independent hardware (same session)
 
 Separately, the wifi/ssh dead end from earlier this session was retested on a second,
