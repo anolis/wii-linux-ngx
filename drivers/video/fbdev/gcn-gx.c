@@ -663,6 +663,17 @@ static void gx_setup_constant_white_state(u16 width, u16 height)
 
 	gx_load_bp_reg(0x40000000);	/* Z disabled */
 	gx_load_bp_reg(0x41000018);	/* colour/alpha update enabled */
+	/*
+	 * DIAGNOSTIC (PE control-block gap test): BP 0x42 (peCMode1 / dst-alpha)
+	 * sits between 0x41 (BLENDMODE, a confirmed pixel-discard trap -- see
+	 * Known pitfalls) and 0x43 (PE_CONTROL, which we do set), but this
+	 * driver has never written it anywhere.  libogc's GX_Init() explicitly
+	 * sets it via GX_SetDstAlpha(GX_DISABLE, 0).  Every raster-state
+	 * permutation tried so far shares this same gap; this fills it with
+	 * the libogc default (dst-alpha disabled, value 0) to test whether an
+	 * uninitialised "mini" leftover here is gating pixel writes.
+	 */
+	gx_load_bp_reg(0x42000000);	/* GX_SetDstAlpha(GX_DISABLE, 0) */
 	gx_load_bp_reg(0x43000040);	/* RGB8/Z24 EFB, linear Z, zcomp before tex */
 	gx_load_bp_reg(0x44000003);	/* GX_SetFieldMask(GX_TRUE, GX_TRUE) */
 	gx_load_bp_reg(0x68000000);	/* GX_SetFieldMode(GX_FALSE, GX_FALSE) */
@@ -696,18 +707,12 @@ static void gx_setup_constant_white_state(u16 width, u16 height)
 	gx_load_xf_reg(0x100e, 0x00000401);
 	gx_load_xf_reg(0x1010, 0x00000401);
 	/*
-	 * DIAGNOSTIC (clip-volume rejection test): this draw uses an identity
-	 * orthographic projection with vertices at clip-space +/-4.0
-	 * (gx_draw_pos_quad), far outside the standard +/-1 clip volume. With
-	 * clip genuinely enabled (0 here, per the fixed GX_CLIP_ENABLE
-	 * polarity), the XF clipper may be silently discarding the whole
-	 * triangle before rasterization -- every other permutation tried
-	 * (color/TEV/scissor/winding/quad-vs-triangle/XY-vs-XYZ) has failed to
-	 * produce a visible EFB write, which is consistent with a structural
-	 * rejection like this rather than any one raster-state register.
-	 * GX_CLIP_DISABLE=1 here tests that hypothesis directly.
+	 * GX_CLIP_DISABLE was tested here (oversized clip-space geometry vs.
+	 * the XF clipper) and ruled out: frame 2 still read back the known
+	 * "still green" signature. Reverted to the normal GX_CLIP_ENABLE
+	 * baseline; see docs/gx-accel-handoff-2026-07-02.md.
 	 */
-	gx_load_xf_reg(0x1005, 1);	/* GX_SetClipMode(GX_CLIP_DISABLE) */
+	gx_load_xf_reg(0x1005, 0);	/* GX_SetClipMode(GX_CLIP_ENABLE) */
 	gx_load_xf_reg(0x103f, 0);
 
 	gx_load_identity_pos_mtx0();
