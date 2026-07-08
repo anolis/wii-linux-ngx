@@ -2331,6 +2331,47 @@ out -- does not reliably hold on this hardware/setup.  Practical implications:
   (no code changes) and tabulate how often each signature appears, to characterize the
   failure rate/pattern before trusting any single result again.
 
+### Follow-up: the "non-determinism" was a sampling artifact, not real hardware randomness
+
+Repeated the `d=GX_CC_HALF, scale=1x` control binary (checksum
+`9ef71ac8461d51016c94457d316cf89dc73104ae10ed487564e4b327ccd1d8cd`) 4 more times: **green
+every time**, all visually confirmed on the TV.  Combined with the original mid-tone
+reading never having been visually confirmed (only read from the dmesg log), this already
+made the mid-tone result suspect.
+
+Checked whether the near-black result (BP 0x42 + `d=GX_CC_ONE`, the one that started this
+whole thread) had ever been visually confirmed either.  It had not -- the user's only
+directly-observed black screen was much earlier in this project's history (around the
+`matsrc=VTX`/ambient-material era), before the proven green/red/blue copy-clear cycle test;
+every boot since then has visually shown green with "not much change."  Both the
+near-black and mid-tone readings were therefore based purely on decoding 2-3 sampled pixel
+values (`xfb0`/`xfb1`/`xfbc`) from the dmesg log, never independently confirmed against the
+actual screen.
+
+Used the project's existing HDMI capture rig (`/dev/video0`, confirmed present) to get an
+actual full-frame ground-truth capture of the current (`d=GX_CC_HALF, scale=1x`) diagnostic
+state instead of trusting point samples.  Result: **a single, completely uniform green
+fill across the entire frame** -- no black patch, no gray patch, no visible variation
+anywhere on screen.
+
+This resolves the "non-determinism" scare: it was not genuine hardware/timing randomness.
+The whole screen has been uniformly, stably green (matching the "still green" / no visible
+write signature) across all of this session's tests.  The two "different" log readings
+(near-black `1f781f75`, mid-tone `8040802e`) were most likely noise or anomalies in the
+2-3 sampled pixel values themselves -- not evidence that the primitive ever produced a
+real, visible, distinguishable colour change on screen.  **Retract those two results as
+unreliable.**  The reliable, ground-truth-confirmed state for every TEV variant tried this
+session (`ONE`/1x, `HALF`/1x, `HALF`/2x) is: still green, no visible primitive write.
+
+Methodology change going forward: any claimed "different" result from register-level pixel
+sampling should be confirmed with a full-frame HDMI capture (this rig, or
+`tools/gx_capture_probe.py`) before being logged as a real finding -- 2-3 point samples
+have now demonstrably produced false-different readings twice in one session.  This also
+means the earlier corner-pixel unreliability finding (`xfb0`/`xfb1` at the (0,0)
+scissor/viewport boundary) may extend to the centre sample (`xfbc`) too, at least under
+some conditions -- treat single-pixel dmesg samples as a fast first look, not proof, from
+now on.
+
 ### Wifi retest on independent hardware (same session)
 
 Separately, the wifi/ssh dead end from earlier this session was retested on a second,
