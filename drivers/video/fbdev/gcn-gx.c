@@ -1162,34 +1162,37 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		fifo_pos = 0;
 		gx_setup_constant_white_state(width, height);
 		/*
-		 * DIAGNOSTIC: GX_PERF0_TRIANGLES_PASSED, GX_PERF0_CLIP_VTX,
-		 * and now GX_PERF0_TRIANGLES (total, unconditional) have all
-		 * validated-read 0 for our real 2-triangle/6-vertex draw.
-		 * But the zero-draw control only proved "0 draws in -> 0 out"
-		 * -- it cannot distinguish a genuinely working counter from
-		 * one simply stuck at 0 regardless of input, since both give
-		 * the same result for zero input.  Get a real positive
-		 * control instead: select GX_PERF0_VERTICES (libogc encoding
-		 * XF 0x1006 = 0x0000014a, metric value 0) with the same real
-		 * draw.  6 here is genuine positive proof the counter
-		 * mechanism works and individual vertices ARE being
-		 * processed by the GP, even if triangle *assembly*
-		 * specifically is not happening -- a real, useful
-		 * distinction from the "primitive never recognized" result
-		 * above.  0 here means either the counter mechanism isn't
-		 * trustworthy after all, or no vertex processing is
-		 * happening at all -- a much deeper issue.
+		 * DIAGNOSTIC: GX_PERF0_VERTICES read 0 even for a real
+		 * 6-vertex draw -- a failed positive control (see handoff
+		 * doc retraction).  Root-cause candidate found: this driver
+		 * has ALWAYS used BP 0x65 as its "PE draw-done" fence
+		 * (comment says "BPMEM_PE_DONE"), but per YAGCD --
+		 * independently confirmed against libogc's own
+		 * GX_InitTlutRegion(), which builds a tmem_addr/tlut_sz
+		 * register with address byte 0x65 -- BP 0x65 is actually
+		 * TX_LOADTLUT1 (texture LUT load config), completely
+		 * unrelated to draw completion.  The REAL PE_DONE register
+		 * is BP 0x45 (libogc's actual GX_DrawDone()/GX_SetDrawDone()
+		 * both write BP 0x45 = 0x00000002), which this driver has
+		 * NEVER written anywhere, for any submission, in this
+		 * entire ~80-commit investigation.  If perf counters (or
+		 * anything else) require a genuine PE_DONE completion event
+		 * before their value latches for CPU readback, this would
+		 * explain the failed positive control directly.  Test: add
+		 * the correct BP 0x45 fence after the draw, keep everything
+		 * else (GX_PERF0_VERTICES select+clear+draw) identical.
 		 */
 		gx_load_xf_reg(0x1006, 0x0000014a);
 		cp_write(CP_REG_CLR, 4);
 		gx_draw_pos_quad(width, height);
+		gx_load_bp_reg(0x45000002);	/* real PE_DONE (libogc GX_DrawDone) */
 		gx_submit_cmds();
 		{
 			u32 vertices_total =
 				((u32)cp_read(CP_REG_PERF0_HI) << 16) |
 				cp_read(CP_REG_PERF0_LO);
 
-			pr_info("gcn-gx: f%u perf0=vertices_total count=%u\n",
+			pr_info("gcn-gx: f%u perf0=vertices_total count=%u (with real PE_DONE)\n",
 				phase, vertices_total);
 		}
 	} else if (phase == 2) {
