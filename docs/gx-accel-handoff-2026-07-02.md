@@ -2628,6 +2628,51 @@ back down from ~2.5 minutes worst-case to the original ~20-25s.  The script now 
 the `sleep 20` dmesg capture, LED blink, and console shell, matching the pre-wifi-detour
 form described earlier in this doc.
 
+### MAJOR FINDING: BP 0x65 is not PE_DONE -- this driver has never issued a real draw-done fence
+
+While debugging the failed `GX_PERF0_VERTICES` positive control, found that this driver's
+long-standing "PE draw-done fence" (`gx_copy_efb_to_xfb`, written after every copy,
+documented in Known pitfalls below and in this doc's own BP register table) is wrong.
+
+**BP 0x65 is not `PE_DONE`.**  Per YAGCD, BP 0x65 is `TX_LOADTLUT1` (texture LUT load
+config: rid/count/tmem-offset fields) -- independently confirmed against libogc's own
+`GX_InitTlutRegion()`, which builds a register value with `tmem_addr`/`tlut_sz` fields and
+address byte `0x65` in the top byte, matching YAGCD exactly.  The real `PE_DONE` register is
+**BP 0x45** (libogc's actual `GX_DrawDone()`/`GX_SetDrawDone()` both write
+`BP 0x45 = 0x00000002`), which this driver has **never written anywhere, for any
+submission**, in this entire ~80-commit investigation.  Every `0x65000002` write this whole
+project has been silently reconfiguring (mostly harmlessly, since no TLUT/palette textures
+are in use) the texture LUT unit, not signalling draw completion.
+
+This may explain more than just the perf-counter failure: if the PE requires a genuine
+`PE_DONE` completion event to flush/commit pending writes in some scenarios, this could
+plausibly connect to the original "primitive never visibly writes EFB" mystery too, not just
+the perf counters -- worth keeping in mind for the next hardware test regardless of what the
+immediate perf-counter test shows.
+
+Test: added the correct `BP 0x45 = 0x00000002` fence after the draw in the
+`GX_PERF0_VERTICES` diagnostic, keeping everything else identical to isolate this one
+variable.  The old (wrong) `BP 0x65` write in `gx_copy_efb_to_xfb` is left untouched for now
+to keep this a clean single-variable test, but is now known to be a no-op for draw-done
+purposes and should be revisited (likely replaced with the correct BP 0x45, or removed if a
+real completion-wait strategy is designed instead).
+
+- Non-zero `vertices_total` (ideally 6): confirms `PE_DONE` completion signalling was the
+  missing piece for the perf-counter mechanism -- re-run the earlier retracted tests
+  (`triangles_passed`, `clip_vtx`, `triangles_total`) with the corrected fence to get
+  trustworthy answers this time, and consider whether the same fix might affect the
+  visible-EFB-write mystery.
+- Still 0: rules out missing `PE_DONE` signalling as the explanation for the failed
+  positive control; the counter readback mechanism needs a different kind of debugging
+  (e.g. re-verify the CP register 32/33 offset assumption itself, or that
+  `CP_REG_CLR`/`_cpReg[2]=4` genuinely means "clear perf counters" and not something else).
+
+Commit `ae3f8a5315bb`, built image SHA-256 (not yet deployed -- card unavailable):
+
+```text
+1707fc5ec82fddc9067cb8dd58df41ea9ecbbb5f9dad1fa950a0c2b2edc6700e
+```
+
 ---
 
 ## Known pitfalls
@@ -2640,8 +2685,13 @@ form described earlier in this doc.
 - `GFP_DMA` does not guarantee MEM1 on this platform; use `/memreserve/` + `__va(phys)`.
 - BP `0x4D` (dispCopyDst) is in **32-byte** units — `(width * 2) >> 5`, not `>> 4`.
 - PE_CTRL_STAT is at byte offset 0x00 from PE base, not 0x02.
-- PE FINISH (BP 0x65) may not leave a persistent polling-visible bit; hardware fires a
-  CPU interrupt.  Use `udelay` or poll CmdIdle rather than polling PE_CTRL_STAT bits.
+- PE FINISH may not leave a persistent polling-visible bit; hardware fires a CPU
+  interrupt.  Use `udelay` or poll CmdIdle rather than polling PE_CTRL_STAT bits.
+- **BP 0x65 is `TX_LOADTLUT1` (texture LUT load config), not `PE_DONE`** -- this was
+  wrongly documented as the draw-done fence throughout this project until 2026-07-09.
+  The real `PE_DONE` register is **BP 0x45** (`0x00000002`, matching libogc's
+  `GX_DrawDone()`/`GX_SetDrawDone()` exactly).  See the dedicated write-up above for the
+  full discovery and its possible connection to the primitive-EFB-write mystery.
 - CP FIFO and texture buffer addresses: hardware drops bit 23 of physical addresses.
 - `COPY_CTRL_CLEAR` (BP 0x52 bit 11) clears EFB **after** the copy, not before.
 - XF 0x1040 bit[0]=1 (projection=STQ) requires 3 valid matrix rows; with only 2 rows
