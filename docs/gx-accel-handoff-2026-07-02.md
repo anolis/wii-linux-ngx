@@ -2697,6 +2697,20 @@ global bit exists that hasn't been set anywhere.  Given the diminishing returns 
 many attempts, this specific mechanism is being set aside rather than continuing to guess at
 increasingly obscure hardware plumbing without new evidence.
 
+Follow-up correction: the previous test intentionally left the old `gx_copy_efb_to_xfb()`
+`BP 0x65` write untouched so the `GX_PERF0_VERTICES` retry changed only one variable.  That
+is no longer useful after the test ruled out PE_DONE as the perf-counter fix.  The copy path
+now emits the real draw-done register, `BP 0x45 = 0x00000002`, after every EFB copy and the
+stale in-code comments have been corrected.  This is a baseline hygiene fix, not a new
+hypothesis result yet; deploy it once by itself before trying any further TEV/fog/register
+candidate so future tests are not built on a known-wrong completion fence.
+
+Built image SHA-256 for this baseline correction:
+
+```text
+52349c3203758688baedb231a933b01547f716db14dd0b540fa77ae9822db4ab
+```
+
 ---
 
 ## Known pitfalls

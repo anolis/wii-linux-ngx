@@ -68,7 +68,7 @@
  *   bit 0: PETokenEnable  (interrupt enable)
  *   bit 1: PEFinishEnable (interrupt enable)
  *   bit 2: PEToken  (status - token was received)
- *   bit 3: PEFinish (status - draw-done fired after BP 0x65)
+ *   bit 3: PEFinish (status - draw-done fired after BP 0x45)
  *
  * Boot log shows PE[0]=0x0003 (both enables set, no status yet).
  * PE FINISH is interrupt-driven; status bit clears before we can poll it.

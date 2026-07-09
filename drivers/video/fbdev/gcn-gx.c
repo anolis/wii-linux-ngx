@@ -957,13 +957,13 @@ static void gx_copy_efb_to_xfb(u32 xfb_phys, u16 width, u16 height, bool clear)
 	gx_load_bp_reg(ctrl);
 
 	/*
-	 * BP 0x65 = 2: PE draw-done trigger (BPMEM_PE_DONE / libogc GXSetDrawDone).
+	 * BP 0x45 = 2: PE draw-done trigger (libogc GX_DrawDone/GX_SetDrawDone).
 	 * Queued behind the copy command; when the PE processes it the PE FINISH
-	 * signal fires.  On this hardware PE FINISH is interrupt-driven — the
+	 * signal fires.  On this hardware PE FINISH is interrupt-driven -- the
 	 * status bit in PE_CTRL_STAT clears before software can poll it.
-	 * gx_submit_cmds therefore uses a fixed 2ms udelay rather than polling.
+	 * gx_submit_cmds therefore uses a fixed udelay rather than polling.
 	 */
-	gx_load_bp_reg(0x65000002);
+	gx_load_bp_reg(0x45000002);
 }
 
 void gcn_gx_copy_efb_to_xfb(u32 xfb_phys, u16 width, u16 height)
