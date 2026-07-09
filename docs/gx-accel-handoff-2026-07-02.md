@@ -2667,11 +2667,35 @@ real completion-wait strategy is designed instead).
   (e.g. re-verify the CP register 32/33 offset assumption itself, or that
   `CP_REG_CLR`/`_cpReg[2]=4` genuinely means "clear perf counters" and not something else).
 
-Commit `ae3f8a5315bb`, built image SHA-256 (not yet deployed -- card unavailable):
+Commit `ae3f8a5315bb`, deployed image SHA-256:
 
 ```text
 1707fc5ec82fddc9067cb8dd58df41ea9ecbbb5f9dad1fa950a0c2b2edc6700e
 ```
+
+Result (checksum-verified on card): **`count=0` again, still fails the positive control.**
+
+```text
+gcn-gx: f1 perf0=vertices_total count=0 (with real PE_DONE)
+```
+
+Adding the correct `BP 0x45` `PE_DONE` fence did not change the outcome.  This rules out
+"missing draw-done completion signalling" as the explanation for the perf-counter positive
+control failure specifically.  The `BP 0x65`-is-`TX_LOADTLUT1` register-identity fix itself
+remains independently verified and correct (via YAGCD and libogc's own
+`GX_InitTlutRegion()`) and stays in place going forward -- it just didn't happen to be the
+missing piece for the counter mechanism.
+
+The `GX_PERF0` counter readback mechanism (`CP_REG_CLR` clear write, CP register 32/33
+offsets, `BP 0x23`/`XF 0x1006` selector encodings) remains unvalidated after this attempt.
+Remaining candidates if this is picked back up: verify `CP_REG_CLR`/`_cpReg[2]=4` genuinely
+means "clear perf counters" on real hardware rather than something else entirely (it was
+never independently confirmed, only assumed from the libogc name); re-verify the CP register
+32/33 offset assumption itself against real hardware documentation rather than inferring it
+from libogc's `_cpReg[]` array indexing; or check whether a separate "perf counters enabled"
+global bit exists that hasn't been set anywhere.  Given the diminishing returns after this
+many attempts, this specific mechanism is being set aside rather than continuing to guess at
+increasingly obscure hardware plumbing without new evidence.
 
 ---
 
