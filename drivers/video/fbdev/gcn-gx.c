@@ -1126,94 +1126,20 @@ static void gx_submit_cmds(void)
 }
 
 /*
- * gcn_gx_blit_fb_rgb565 - blit a linear RGB565 virtual FB to the XFB.
- * Full pipeline: tile → bind texture → draw to EFB → EFB-to-XFB copy.
+ * gcn_gx_blit_fb_rgb565 - confirmed GX copy-clear baseline.
  *
- * Frames 0-359 (~6s): normal rendering from vfb_mem (terminal content).
- * Frames 360-539 (~3s): textured solid red — visual confirm texture refresh.
- * Frames 540-719 (~3s): textured solid green
- * Frames 720-899 (~3s): textured solid blue
- * Frames 900+: back to normal.
+ * This deliberately ignores vfb until primitive rasterization is known to
+ * work.  GX copy-clear has repeatedly produced a stable green EFB and copied
+ * it to the XFB, so keep that small path as the hardware reference point.
  */
 void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
-	static u32 frame_count;
-	u32 phase = frame_count++;
+	(void)vfb;
 
-	gx_current_frame = phase;
-
-	/*
-	 * DIAGNOSTIC: use clear=true itself as the readout path, avoiding the
-	 * clear=false copy that failed to observe a one-shot copy-clear seed.
-	 *
-	 * Frame 0: copy stale EFB to XFB, then clear EFB to green.
-	 * Frame 1: draw a constant-white primitive into EFB only.
-	 * Frame 2: copy EFB to XFB via clear=true, then clear EFB back to green.
-	 *
-	 * If primitive writes work, frame 2's pre-CPU sample should be white.  If
-	 * they do not, frame 2 should be the known GX-green signature.
-	 */
-	if (phase == 0) {
-		fifo_pos = 0;
-		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
-		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
-		gx_submit_cmds();
-	} else if (phase == 1) {
-		fifo_pos = 0;
-		gx_setup_constant_white_state(width, height);
-		/*
-		 * DIAGNOSTIC: GX_PERF0_VERTICES read 0 even for a real
-		 * 6-vertex draw -- a failed positive control (see handoff
-		 * doc retraction).  Root-cause candidate found: this driver
-		 * has ALWAYS used BP 0x65 as its "PE draw-done" fence
-		 * (comment says "BPMEM_PE_DONE"), but per YAGCD --
-		 * independently confirmed against libogc's own
-		 * GX_InitTlutRegion(), which builds a tmem_addr/tlut_sz
-		 * register with address byte 0x65 -- BP 0x65 is actually
-		 * TX_LOADTLUT1 (texture LUT load config), completely
-		 * unrelated to draw completion.  The REAL PE_DONE register
-		 * is BP 0x45 (libogc's actual GX_DrawDone()/GX_SetDrawDone()
-		 * both write BP 0x45 = 0x00000002), which this driver has
-		 * NEVER written anywhere, for any submission, in this
-		 * entire ~80-commit investigation.  If perf counters (or
-		 * anything else) require a genuine PE_DONE completion event
-		 * before their value latches for CPU readback, this would
-		 * explain the failed positive control directly.  Test: add
-		 * the correct BP 0x45 fence after the draw, keep everything
-		 * else (GX_PERF0_VERTICES select+clear+draw) identical.
-		 */
-		gx_load_xf_reg(0x1006, 0x0000014a);
-		cp_write(CP_REG_CLR, 4);
-		gx_draw_pos_quad(width, height);
-		gx_load_bp_reg(0x45000002);	/* real PE_DONE (libogc GX_DrawDone) */
-		gx_submit_cmds();
-		{
-			u32 vertices_total =
-				((u32)cp_read(CP_REG_PERF0_HI) << 16) |
-				cp_read(CP_REG_PERF0_LO);
-
-			pr_info("gcn-gx: f%u perf0=vertices_total count=%u (with real PE_DONE)\n",
-				phase, vertices_total);
-		}
-	} else if (phase == 2) {
-		fifo_pos = 0;
-		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
-		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
-		gx_submit_cmds();
-	}
-
-	/*
-	 * DIAGNOSTIC: no GX submits after frame 2. Later green samples are from
-	 * the software fallback and only prove the VI/XFB path remains alive.
-	 */
-	/* Diagnostic: log tex and XFB content for frames 0-3 and at color start */
-	if (phase < 4 || phase == 360) {
-		const u32 *xv = (const u32 *)__va(xfb_phys);
-		u32 center_off = (u32)(height / 2) * (width / 2) + (width / 4);
-
-		pr_info("gcn-gx: f%u diag=green-clear-f0-const-white-f1-clear-read-f2 xfb0=%08x xfb1=%08x xfbc=%08x\n",
-			phase, xv[0], xv[1], xv[center_off]);
-	}
+	fifo_pos = 0;
+	gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
+	gx_copy_efb_to_xfb(xfb_phys, width, height, true);
+	gx_submit_cmds();
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
 
