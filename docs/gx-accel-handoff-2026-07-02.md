@@ -2711,6 +2711,41 @@ Built image SHA-256 for this baseline correction:
 52349c3203758688baedb231a933b01547f716db14dd0b540fa77ae9822db4ab
 ```
 
+## 2026-07-17: reset to the confirmed copy-clear baseline
+
+The live RGB565 blit path had accumulated the failed three-frame
+constant-white primitive and `GX_PERF0_VERTICES` experiment.  That made the
+deployed behavior more complicated than the small set of operations actually
+confirmed on hardware.
+
+Commit `297284f0515f` removes that experiment from the active path.  Every
+RGB565 refresh now performs only the known-good sequence:
+
+1. Set the copy-clear color to solid green.
+2. Execute an EFB-to-XFB display copy with `clear=true`.
+3. Submit and drain the GX FIFO.
+
+The path intentionally ignores `vfb` for now.  It is a hardware reference
+point, not a functional framebuffer implementation.  Primitive drawing,
+`GX_PERF0` counters, and CPU-side XFB pixel samples are not treated as working
+or diagnostic evidence in this baseline.
+
+Build command:
+
+```text
+CCACHE_TEMPDIR=/tmp CCACHE_DIR=/tmp/wii-ccache ARCH=powerpc \
+  CROSS_COMPILE=powerpc-linux-gnu- make zImage -j8
+```
+
+Built and checksum-verified on the SD card at `gumboot/zImage.ngx`:
+
+```text
+9f5d12e771d14ef1abb24fba3d39efc9dd4b56d2f11fe2385b7f6a5dc1e7d502
+```
+
+Expected hardware result: a stable, uniform green display.  Record the visual
+result before introducing the next single-variable primitive test.
+
 ---
 
 ## Known pitfalls
