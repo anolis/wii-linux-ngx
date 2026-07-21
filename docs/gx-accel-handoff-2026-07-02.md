@@ -4120,6 +4120,16 @@ third PE-finish IRQ, and complete drain. Red rules out post-draw NOP pacing.
 Green means the byte gap between BP 0x45 and copy-state writes is required on
 hardware despite containing no semantic commands.
 
+Hardware result: **red.** The fresh log validates 640x480 mode,
+`nonops WT=0220 pos=544`, token `0x0003`, restored third PE-finish IRQ, and
+complete drain to `RDoff=WToff=0x0220`. The 32-NOP block after BP 0x45 has no
+pacing or synchronization effect and is ruled out.
+
+Next restore the post-draw NOP block and physically remove only the first 32
+NOPs at frame offsets 0x0f..0x2e, immediately after initial BP 0x43. Red rules
+out the capture's remaining internal NOP pacing; green identifies a required
+delay or write-gather boundary before the subsequent setup commands.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
