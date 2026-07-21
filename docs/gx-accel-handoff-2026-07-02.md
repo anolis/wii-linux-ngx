@@ -4397,6 +4397,33 @@ Success is a correctly oriented, correctly coloured Linux console that visibly
 updates when text is entered. A static snapshot, corruption, wrong quadrant-like
 layout, or green screen must be reported separately.
 
+Hardware result: **live rendering works, but is not yet stable.** Boots one and
+three displayed the correctly oriented Linux console; the third showed a
+blinking cursor, proving repeated framebuffer updates. The second boot instead
+showed about 20 repeated vertical copies of the console while still responding
+to keyboard input. On the successful third boot, the display stopped updating
+when `init-diag.sh` wrote its log and called `sync`. The first boot also appeared
+to fail around USB-keyboard hotplug.
+
+The fresh third-boot log validates `live0 WT=02a0 pos=672`, token `0x0003`,
+finish IRQ 3, and complete drain, followed by `live WT=02a0 pos=672`, token
+`0x0004`, finish IRQ 4, and complete drain. No FIFO slow/stall warning was
+recorded. The log snapshot necessarily ends before the post-write freeze because
+the script is writing that same snapshot.
+
+The current implementation performs the entire 640x480 tiling pass, cache
+flush, command construction, token wait, and GP-idle wait from the VI hard-IRQ
+handler. The first live frame spends about 9 ms tiling/building before the FIFO
+pre-log and then remains in submission long enough for the logged handler path
+to exceed a 16.7 ms frame period. This is not acceptable interrupt latency and
+fits both the SD-I/O and USB-hotplug failures.
+
+Next preserve the exact validated texture command path but have the VI IRQ only
+queue coalesced work. Perform tiling and GX submission from workqueue context;
+if a frame is already queued/running, allow the next callback to coalesce rather
+than blocking hard IRQs. Re-run the existing 20-second log-write/sync sequence
+and keyboard hotplug as stress tests.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
