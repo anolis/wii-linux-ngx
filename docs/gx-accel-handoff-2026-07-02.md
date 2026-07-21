@@ -3608,6 +3608,34 @@ the driver's generated direct-color setup, then isolate differences inside the
 564-byte frame. Do not return to PI reset, undocumented register probing, or the
 one-time preamble unless new evidence specifically requires it.
 
+### Reproduce the historical BP 0x59 scissor-offset encoding
+
+The strongest concrete difference between the proven frame and the driver's
+generated direct-color setup is BP `0x59` (`SCISSOR_OFFSET`). The working capture
+does not rewrite it and its initial snapshot contains `0x5902acab`. The driver
+explicitly emits `0x59000000`, claiming that value represents logical offset
+`(0,0)`.
+
+Libogc's `GX_SetScissorBoxOffset()` independently proves that claim wrong. It
+encodes each axis as `(offset + 0x156) >> 1`; logical `(0,0)` therefore produces
+raw X=Y=`0xab` and register payload `0x02acab`. Dolphin documents the same 342
+bias and divide-by-two representation.
+
+This test prepends only the driver's historical `0x59000000` write to the
+otherwise proven no-preamble 564-byte red frame. No other command or mode changes.
+
+Built image SHA-256:
+
+```text
+817496400e4474cd34fe730eb98022e1e48deea3eba9c171b867013c6c493d1e
+```
+
+Validity requires 640x480 mode and replay `WT=0260 pos=608` with a complete
+drain. Green or severe clipping reproduces the historical primitive failure with
+one known-bad register and identifies the root cause. Red means BP 0x59 is still
+a real encoding bug but not sufficient to explain the old failures; compare BP
+0x28 and TEV KSEL/swap state next.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`

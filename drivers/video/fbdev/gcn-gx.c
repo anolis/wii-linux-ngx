@@ -1435,6 +1435,8 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		pr_info("gcn-gx: green seed complete; replaying libogc red frame\n");
 		gx_diag_finish_baseline = finish_count;
 		fifo_pos = 0;
+		/* Reproduce the driver's historical, incorrectly encoded offset. */
+		gx_load_bp_reg(0x59000000);
 		gx_load_reference_red_frame(xfb_phys, width, height);
 		gx_submit_cmds("replay");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;
