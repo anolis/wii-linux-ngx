@@ -4330,6 +4330,34 @@ copy. A recognizable pattern provides a positive control for tiling, texture
 addressing, cache invalidation, texcoord generation, and TEV sampling before
 connecting the live Linux virtual framebuffer.
 
+### Test a generated tiled RGB565 texture
+
+The active diagnostic fills the reserved MEM1 texture buffer directly in GX
+4x4-tiled RGB565 layout with four full-screen quadrants: red at top left, green
+at top right, blue at bottom left, and white at bottom right. It flushes the
+entire 640x480 texture before submission.
+
+The test keeps the now-proven generated direct-colour setup and corrected
+`XF 0x1025=-1.0` projection. It adds one position-derived 2x4 texcoord generator
+through `GX_TEXMTX0`, enables texmap 0 in stage-0 BP `0x28`, changes TEV stage 0
+to texture colour/alpha passthrough, binds the MEM1 buffer as RGB565, invalidates
+the texture cache twice, and draws the same proven XY+RGBA8 quad. The raster
+colour remains in the vertex format but TEV ignores it. Draw, fence, green
+copy-clear state, and EFB-to-XFB copy remain one contiguous submission.
+
+Built image SHA-256:
+
+```text
+c5c280d9a75882de75a4da41982fb1c444420e82c3ba7011675d7d5ed9973971
+```
+
+Validity requires `texquad WT=02a0 pos=672`, token `0x0003`, third PE-finish
+IRQ, and complete drain. Four correctly placed colour quadrants validate the
+tiler layout, MEM1 texture addressing, cache flush/invalidate, position texgen,
+TMU fetch, and TEV texture passthrough as a group. Solid green means no visible
+textured write; any other pattern should be described precisely before reducing
+the setup or connecting the live framebuffer.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`

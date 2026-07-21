@@ -424,6 +424,35 @@ static void gx_tile_rgb565(const u16 *src, u16 *dst, u32 width, u32 height)
 	}
 }
 
+/* Fill a GX-tiled RGB565 texture with four unmistakable colour quadrants. */
+static void gx_fill_test_pattern_rgb565(u16 *dst, u32 width, u32 height)
+{
+	u32 bw = width >> 2;
+	u32 bh = height >> 2;
+	u32 tx, ty, row, col;
+
+	for (ty = 0; ty < bh; ty++) {
+		for (tx = 0; tx < bw; tx++) {
+			u16 *tile = dst + (ty * bw + tx) * 16;
+
+			for (row = 0; row < 4; row++) {
+				u32 y = ty * 4 + row;
+
+				for (col = 0; col < 4; col++) {
+					u32 x = tx * 4 + col;
+					u16 color;
+
+					if (y < height / 2)
+						color = x < width / 2 ? 0xf800 : 0x07e0;
+					else
+						color = x < width / 2 ? 0x001f : 0xffff;
+					tile[row * 4 + col] = color;
+				}
+			}
+		}
+	}
+}
+
 /*
  * gx_tile_rgb888 - convert linear RGB888 (packed u32) to GX RGB565 tiles.
  *
@@ -879,6 +908,24 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_cp_reg(0x70, 0x40016008);
 	gx_load_cp_reg(0x80, 0x80000000);
 	gx_load_cp_reg(0x90, 0x00000000);
+}
+
+/* Add one position-derived texcoord and make TEV stage 0 sample texmap 0. */
+static void gx_setup_pattern_texture_state(u16 width, u16 height)
+{
+	gx_setup_vertex_color_state(width, height);
+
+	/* Keep the proven colour channel and add one texture-coordinate generator. */
+	gx_load_bp_reg(0x00000011);
+	gx_load_bp_reg(0xC008FFF8);
+	gx_load_bp_reg(0xC108FFC0);
+	gx_load_bp_reg(0x28000040);
+
+	/* GX_TG_MTX2x4 from position through GX_TEXMTX0. */
+	gx_load_xf_reg(0x103f, 0x00000001);
+	gx_load_xf_reg(0x1040, 0x00000004);
+	gx_load_xf_reg(0x1050, 0x0000003F);
+	gx_load_pos_to_tex_mtx0(width, height);
 }
 
 /*
@@ -1440,24 +1487,29 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	case GX_DIAG_WAIT_GREEN:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: green seed complete; testing corrected generated projection\n");
+		pr_info("gcn-gx: green seed complete; testing tiled RGB565 texture\n");
 		gx_diag_finish_baseline = finish_count;
+		gx_fill_test_pattern_rgb565((u16 *)gx_tex_buf, width, height);
+		flush_dcache_range((unsigned long)gx_tex_buf,
+				   (unsigned long)gx_tex_buf +
+				   (unsigned long)width * height * 2);
 		fifo_pos = 0;
-		gx_setup_vertex_color_state(width, height);
+		gx_setup_pattern_texture_state(width, height);
+		gx_setup_texture_rgb565(gx_tex_buf, width, height);
 		gx_draw_color_quad(width, height, 0xff, 0x00, 0x00);
 		gx_load_bp_reg(0x45000002);
 		for (i = 0; i < 32; i++)
 			gx_wr8(0);
 		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
 		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
-		gx_submit_cmds("drawcopy");
+		gx_submit_cmds("texquad");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;
 		break;
 
 	case GX_DIAG_WAIT_DRAW:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: corrected generated draw+copy PE finish observed\n");
+		pr_info("gcn-gx: tiled texture draw+copy PE finish observed\n");
 		gx_diag_phase = GX_DIAG_DONE;
 		break;
 
