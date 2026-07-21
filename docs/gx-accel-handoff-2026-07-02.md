@@ -4068,7 +4068,8 @@ generated split-submission test used the same register.
 This build restores the exact proven frame except for bytes `0x1e7..0x1eb`,
 where `BP 0x45 = 0x000002` is replaced with five NOPs. The following 32 NOP
 bytes remain in place, as do all draw state, vertex data, post-draw copy state,
-the copy execute command, and the submit helper's final token/finish marker.
+the copy execute command, and the submit helper's final BP 0x48/BP 0x47 token
+marker. The submit helper does not append a separate BP 0x45 finish marker.
 The prior duplicate-state omissions are fully restored.
 
 Built image SHA-256:
@@ -4077,10 +4078,25 @@ Built image SHA-256:
 fe821ded8ba86745a94b5c458a2e1ec5b5e9ca954ceb7ffe7941c171995ff1ee
 ```
 
-Validity requires `nofence WT=0240 pos=576`, expected final token and finish
-IRQ, and complete drain. Red proves the frame's internal BP 0x45 command is not
-required to make its primitive visible before the copy. Green makes that fence
-the distinguishing mechanism despite the earlier generated fence test.
+Validity requires `nofence WT=0240 pos=576`, expected final token value, and
+complete drain. No third finish IRQ should occur because this test removes the
+submission's only BP 0x45 command. Red proves the frame's internal BP 0x45
+command is not required to make its primitive visible before the copy. Green
+makes that fence the distinguishing mechanism despite the earlier generated
+fence test.
+
+Hardware result: **red.** The fresh log validates 640x480 mode,
+`nofence WT=0240 pos=576`, token value `0x0003`, and complete drain to
+`RDoff=WToff=0x0240`. As expected after removing the only BP 0x45 command, no
+third PE-finish IRQ occurred and the state machine remained in `WAIT_DRAW`.
+This independently confirms that BP 0x48/BP 0x47 token completion does not
+generate a PE-finish interrupt. The red frame proves BP 0x45 is unnecessary for
+primitive visibility or ordering before this copy.
+
+Next restore BP 0x45 and physically remove only the 32 NOP bytes at frame
+offsets 0x1ec..0x20b. Red rules out post-draw FIFO padding/pacing; green shows
+that the otherwise no-op byte gap is required between primitive completion and
+copy execution.
 
 Primary references:
 
