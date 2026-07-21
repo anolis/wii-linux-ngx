@@ -4242,6 +4242,20 @@ and complete drain. Red identifies late ordered vertex-state emission as the
 missing generated-path mechanism and requires reducing the tail. Green rules
 out the entire tail and shifts ordering work to earlier raster/XF state.
 
+Hardware result: **solid green.** The fresh log contains the unique test
+markers and validates `tail WT=0280 pos=640`, token value `0x0003` after 410
+microseconds, the third PE-finish IRQ, and complete drain to
+`RDoff=WToff=0x0280`. The entire 95-byte late vertex-consumer tail is therefore
+ruled out as the missing generated-path requirement. Command submission,
+downstream BP execution, and finish signalling all completed normally; the
+primitive still made no visible EFB write.
+
+Next decode both command streams mechanically and compare their ordered BP,
+CP, and XF writes. The generated setup is proven non-poisoning and the complete
+late vertex tail is proven insufficient, so the next test should isolate a
+specific missing command or an earlier raster/XF ordering difference rather
+than adding another broad state group.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
