@@ -38,6 +38,7 @@
 #include <linux/interrupt.h>
 #include <linux/irqdomain.h>
 #include <linux/string.h>
+#include <linux/workqueue.h>
 #include <asm/cacheflush.h>
 #include <asm/div64.h>
 #include <asm/page.h>
@@ -81,6 +82,18 @@ enum gx_finish_diag_phase {
 
 static enum gx_finish_diag_phase gx_diag_phase;
 static u32 gx_diag_finish_baseline;
+
+struct gx_rgb565_work {
+	struct work_struct work;
+	const void *vfb;
+	u32 xfb_phys;
+	u16 width;
+	u16 height;
+};
+
+static struct gx_rgb565_work gx_rgb565_work;
+static DEFINE_SPINLOCK(gx_rgb565_work_lock);
+static u32 gx_rgb565_work_runs;
 
 static inline u16 pe_read(int reg)
 {
@@ -1118,8 +1131,8 @@ EXPORT_SYMBOL_GPL(gcn_gx_copy_efb_to_xfb);
  * Pads to 32-byte alignment, flushes dcache so GP DMA sees the writes,
  * then configures CP BASE/END/RD/WT and enables GP reads.
  *
- * Called from IRQ context (VI DI1).  No sleeping.  udelay in gx_wait_idle
- * is safe in IRQ context on PPC32.
+ * Called from the RGB565 worker.  The VI DI1 hard IRQ only queues that work,
+ * keeping the 640x480 tiling pass and hardware polling out of IRQ context.
  *
  * Critical: flush gx_fifo_buf BEFORE setting WT or enabling the GP.
  * The setup functions write commands into CPU cache; without the flush
@@ -1440,13 +1453,14 @@ static void gx_submit_live_rgb565(const void *vfb, u32 xfb_phys,
 }
 
 /*
- * gcn_gx_blit_fb_rgb565 - asynchronous PE-finish primitive diagnostic.
+ * gx_process_rgb565 - asynchronous PE-finish primitive diagnostic.
  *
  * Validate the real PE-finish IRQ with known copies, then submit a red draw
- * and return from VI IRQ context. A later VI callback copies EFB only after
+ * and return to the worker. A later worker invocation copies EFB only after
  * the independent PE-finish handler has observed draw completion.
  */
-void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
+static void gx_process_rgb565(const void *vfb, u32 xfb_phys,
+			      u16 width, u16 height)
 {
 	u32 finish_count;
 
@@ -1495,6 +1509,46 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 		gx_submit_live_rgb565(vfb, xfb_phys, width, height, "live");
 		break;
 	}
+}
+
+static void gx_rgb565_workfn(struct work_struct *work)
+{
+	const void *vfb;
+	u32 xfb_phys;
+	u16 width, height;
+	unsigned long flags;
+	u32 run;
+
+	(void)work;
+	spin_lock_irqsave(&gx_rgb565_work_lock, flags);
+	vfb = gx_rgb565_work.vfb;
+	xfb_phys = gx_rgb565_work.xfb_phys;
+	width = gx_rgb565_work.width;
+	height = gx_rgb565_work.height;
+	spin_unlock_irqrestore(&gx_rgb565_work_lock, flags);
+
+	if (!vfb || !width || !height || !gx_accel_ready)
+		return;
+
+	run = ++gx_rgb565_work_runs;
+	if (run == 1 || run == 60 || run == 300)
+		pr_info("gcn-gx: RGB565 worker run=%u\n", run);
+	gx_process_rgb565(vfb, xfb_phys, width, height);
+}
+
+void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&gx_rgb565_work_lock, flags);
+	gx_rgb565_work.vfb = vfb;
+	gx_rgb565_work.xfb_phys = xfb_phys;
+	gx_rgb565_work.width = width;
+	gx_rgb565_work.height = height;
+	spin_unlock_irqrestore(&gx_rgb565_work_lock, flags);
+
+	/* One running and one pending frame are sufficient; newer IRQs coalesce. */
+	schedule_work(&gx_rgb565_work.work);
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
 
@@ -1597,6 +1651,11 @@ int gcn_gx_init(void)
 	gx_tex_raw = NULL;
 	gx_tex_buf = (void *)__va(GX_TEX_BUF_MEM1_PHYS);
 	memset(gx_tex_buf, 0, GX_TEX_BUF_SIZE);
+	INIT_WORK(&gx_rgb565_work.work, gx_rgb565_workfn);
+	gx_rgb565_work.vfb = NULL;
+	gx_rgb565_work_runs = 0;
+	gx_diag_phase = GX_DIAG_SEED;
+	gx_diag_finish_baseline = 0;
 	pr_info("gcn-gx: init: tex_buf phys=0x%08x virt=%p\n",
 		GX_TEX_BUF_MEM1_PHYS, gx_tex_buf);
 
@@ -1622,6 +1681,7 @@ EXPORT_SYMBOL_GPL(gcn_gx_init);
 void gcn_gx_exit(void)
 {
 	gx_accel_ready = false;
+	cancel_work_sync(&gx_rgb565_work.work);
 	gx_wait_idle();
 	cp_write(CP_REG_CTRL, 0);
 	if (gx_pe_finish_irq) {

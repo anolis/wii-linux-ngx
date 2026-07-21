@@ -4424,6 +4424,34 @@ if a frame is already queued/running, allow the next callback to coalesce rather
 than blocking hard IRQs. Re-run the existing 20-second log-write/sync sequence
 and keyboard hotplug as stress tests.
 
+### Move live RGB565 rendering out of the VI hard IRQ
+
+The active test preserves the byte-for-byte generated RGB565 texture, draw,
+fence, clear, and EFB-to-XFB submission path that produced a working console.
+Only its scheduling changes. `gcn_gx_blit_fb_rgb565()` now snapshots the stable
+framebuffer parameters and queues one `work_struct`; the worker performs the
+tiling pass, cache flush, command construction, token polling, and FIFO drain.
+Repeated VI callbacks coalesce while work is pending instead of extending hard
+IRQ latency or starting concurrent GX submissions.
+
+Worker-run markers at runs 1, 60, and 300 provide a positive control that
+deferred rendering continues. Module teardown first disables acceleration and
+then synchronously cancels pending work. The diagnostic phase is reset during
+initialization so a future unload/reload starts from the known seed sequence.
+
+Built image SHA-256:
+
+```text
+760459b00ec1f02cda0323a4144f6ff2c488eadd9a758ede30a24e19e7d0c5a9
+```
+
+Validity requires the same `live0 WT=02a0 pos=672` and subsequent
+`live WT=02a0 pos=672` token/finish/drain results as the IRQ-context image,
+plus worker progress markers. Success requires the console to remain live
+through the 20-second `dmesg` write, `sync`, slot-LED blink, and USB keyboard
+activity. Repeated columns, a post-write freeze, or FIFO/token errors are
+separate failures and must be recorded precisely.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
