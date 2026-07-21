@@ -3682,6 +3682,23 @@ Validity requires 640x480 mode, a generated `draw` submission at
 corrected BP 0x59 encoding is sufficient to revive the generated direct-color
 path. Green means at least one additional generated-state difference remains.
 
+Hardware result: **solid green.** The fresh log validates every sequencing and
+length control: 640x480 mode, draw `WT=01a0 pos=416`, expected token, complete
+draw drain, draw PE-finish IRQ, copy `WT=0060 pos=96`, expected token, complete
+copy drain, and final copy PE-finish IRQ. BP 0x59 is necessary but not sufficient;
+at least one additional generated-state mismatch remains.
+
+BP 0x28's apparent `0x000000` versus captured `0x049000` mismatch is not the
+next useful test: libogc packs two TEV stages into that register, and the stage-0
+fields used here are zero in both values. The nonzero captured bits describe
+unused stage 1.
+
+The strongest omitted working-frame group is now BP 0x01 through 0x04. Libogc's
+`GX_SetCopyFilter(aa=false, ...)` writes `0x666666` to all four sample-position
+registers; the generated path writes none of them and inherits Mini's unknown
+values. Add exactly those four writes before the generated draw. Keep all other
+state and split draw/copy sequencing unchanged.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
