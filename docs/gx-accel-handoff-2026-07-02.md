@@ -2897,6 +2897,30 @@ be141e82d1ba37851c196919d9aef1cd59acac83d7f493abf222b37ffbe522b3
 
 Expected visual result: unchanged solid green.
 
+Hardware result: **positive control passed via token-value readback.** The PE
+token-status and finish-status bits did not latch (`status=0003`, enable bits
+only), but PE word index 7 advanced to the exact new per-frame marker in about
+330 microseconds on all four logged frames:
+
+```text
+gcn-gx: f0 PE token_status=0 finish=0 token=0001 expected=0001 wait_us=330 status=0003
+gcn-gx: f1 PE token_status=0 finish=0 token=0002 expected=0002 wait_us=330 status=0003
+gcn-gx: f2 PE token_status=0 finish=0 token=0003 expected=0003 wait_us=330 status=0003
+gcn-gx: f3 PE token_status=0 finish=0 token=0004 expected=0004 wait_us=330 status=0003
+```
+
+Every submission also drained to `RDoff=0060 WToff=0060` with `SR=000c`.
+This validates PE+0x0e token-value polling as a real, bounded downstream command
+marker and independently confirms that BP writes after the EFB copy execute.
+The non-latching status bits are not needed for this mechanism and remain
+unsuitable as diagnostics.
+
+The next primitive test should use two submissions per frame: draw the
+contrasting primitive, append `BP 0x45` plus a fresh draw-sync token, submit and
+wait for the token value; only then issue EFB-to-XFB copy-clear plus another
+fresh token. This directly tests whether the old draw-and-copy command stream
+was copying EFB before raster completion.
+
 Hardware result: **solid green; finish status still did not latch.** The enable
 bit itself read back correctly as `PE=0002`, proving that the corrected MMIO
 register is writable, but bit 3 remained clear for all four 20 ms windows:
