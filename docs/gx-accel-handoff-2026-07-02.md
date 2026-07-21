@@ -2763,7 +2763,25 @@ the writers by both time and color: green or green/black during the first
 interval is GX behavior, while stable red afterward positively identifies the
 CPU writer and provides an unmistakable transition marker.
 
-Built image SHA-256 (pending deployment):
+Fresh `dmesg.txt` from the previous green/green build confirms that the GX and
+CPU writers were racing rather than that GX eventually stabilized.  All four
+logged GX submissions drained fully with `RDoff=0040` and `WToff=0040`.  Before
+the CPU fill, frames 1, 2, 3, and 360 all retained the same non-green values:
+
+```text
+gcnfb: f1 post-gx-pre-cpu-fill fb0=b531da65 fb1=d8827286 fbc=1d791d77
+gcnfb: f360 post-gx-pre-cpu-fill fb0=b531da65 fb1=d8827286 fbc=1d791d77
+```
+
+The CPU then replaced the sampled XFB with uniform green `a52ba515` each time.
+This explains the observed green/black flicker as VI seeing alternating GX and
+CPU writes.  The later `dmesg.txt` write was only correlated in time; CPU green
+had already started at 0.44 seconds.  The same log contains an unrelated EHCI
+bad-spinlock/DMA-debug warning during boot, but the kernel recovered and GX
+continued to submit and drain afterward.
+
+Built image SHA-256, checksum-verified after deployment to
+`gumboot/zImage.ngx`:
 
 ```text
 2d115b2a3a5dafa379fdf2c691752730f9539fa1e9b3aacb861b3355d94ea603
