@@ -4358,6 +4358,19 @@ TMU fetch, and TEV texture passthrough as a group. Solid green means no visible
 textured write; any other pattern should be described precisely before reducing
 the setup or connecting the live framebuffer.
 
+Hardware result: **all four quadrants rendered correctly.** The fresh log
+validates `texquad WT=02a0 pos=672`, token `0x0003` after 800 microseconds, the
+third PE-finish IRQ, and complete drain to `RDoff=WToff=0x02a0`. This is a
+successful positive control for the complete generated RGB565 texture path:
+4x4 tiling, MEM1 addressing, CPU cache flush, GX texture-cache invalidation,
+position-derived texcoords, TMU fetch, TEV passthrough, EFB rendering, and
+EFB-to-XFB display copy.
+
+Next preserve this exact command path and replace only the generated quadrant
+source with the live linear RGB565 virtual framebuffer passed by `gcnfb`. Tile
+and submit it continuously after the diagnostic startup so visible console
+updates validate real framebuffer integration and repeated-frame stability.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
