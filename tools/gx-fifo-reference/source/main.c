@@ -116,8 +116,8 @@ int main(void)
 	configure_gx();
 
 	while (1) {
-		GX_SetViewport(0.0f, 0.0f, video_mode->fbWidth,
-			       video_mode->efbHeight, 0.0f, 1.0f);
+		/* Keep the complete ordered draw state in every FIFO capture. */
+		configure_gx();
 		draw_red_quad(video_mode->fbWidth, video_mode->efbHeight);
 		GX_DrawDone();
 		GX_CopyDisp(framebuffer, GX_TRUE);

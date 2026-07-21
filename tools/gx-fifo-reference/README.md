@@ -39,6 +39,19 @@ initial BP/CP/XF arrays matter: the 204 frame bytes contain only state changed
 after recording began, not the complete setup performed by `GX_Init()` and
 `configure_gx()`.
 
+`reference-red-quad-full-state.dff` comes from the variant which calls
+`configure_gx()` inside every frame. Its one frame contains 564 ordered FIFO
+bytes and zero memory updates, including the complete public libogc draw setup,
+quad, draw-done fence, and display copy. Direct FIFO Player replay was visually
+confirmed red. Its SHA-256 is:
+
+```text
+8b42cc84e28b8ab09e53f981f4c1b197ec57fa0ee0029704f78d1a819f1aa302
+```
+
+`reference-red-quad-full-state.txt` is its golden decoder output. This is the
+preferred reference for ordered command-stream comparison and hardware replay.
+
 Source references:
 
 - <https://github.com/devkitPro/wii-examples/tree/master/graphics/gx/triangle>

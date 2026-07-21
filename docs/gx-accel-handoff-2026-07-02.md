@@ -3311,6 +3311,34 @@ validated FIFO capture will then contain the exact ordered public libogc setup,
 primitive, fence, and copy sequence. Compare or replay that complete stream in
 Linux as one bounded control.
 
+### Capture complete ordered libogc draw state
+
+The reference program now calls `configure_gx()` inside every frame before its
+red quad. A new one-frame Dolphin capture contains 564 FIFO bytes and zero
+memory updates. Unlike the original 204-byte capture, it includes the complete
+ordered public configuration sequence, primitive, BP 0x45 draw-done command,
+and EFB-to-XFB copy.
+
+Capture SHA-256:
+
+```text
+8b42cc84e28b8ab09e53f981f4c1b197ec57fa0ee0029704f78d1a819f1aa302
+```
+
+Positive control: launching the new `.dff` directly in Dolphin's FIFO Player
+rendered the expected solid red frame. The capture is therefore independently
+replayable and suitable as the ordered ground truth. Its structured decode is
+checked in as `reference-red-quad-full-state.txt`.
+
+The ordered comparison also corrected a false lead: libogc explicitly writes
+CP 0x30 and XF 0x1018 before the draw, but the driver's
+`gx_load_identity_pos_mtx0()` already writes both registers with position
+matrix index 0. Current position-matrix selection is not missing.
+
+The next hardware test should emit the capture's complete setup and red draw in
+the same order, then use the driver's physical XFB address for the final copy.
+This is a bounded replay test, not another individual-register experiment.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
