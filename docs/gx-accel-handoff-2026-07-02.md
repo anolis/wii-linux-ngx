@@ -3088,6 +3088,30 @@ Built image SHA-256:
 1fbcea946af61d4355f39fd9f3a89d2bfff9cd489cb05d64556dbea8eb9ffcae
 ```
 
+Hardware result: **the final display changed from the established bright green
+control to visibly dark green.** The returned log confirms that the intended
+image ran and completed every asynchronous phase normally:
+
+```text
+gcn-gx: PE finish IRQ count=1 status=0003
+gcn-gx: seed PE finish IRQ validated at count=1
+gcn-gx: PE finish IRQ count=2 status=0003
+gcn-gx: green seed complete; submitting red draw
+gcn-gx: f2 draw post: SR=000c RDoff=01a0 WToff=01a0
+gcn-gx: PE finish IRQ count=3 status=0003
+gcn-gx: draw PE finish observed; copying EFB readout
+gcn-gx: f3 readout post: SR=000c RDoff=0060 WToff=0060
+gcn-gx: PE finish IRQ count=4 status=0003
+```
+
+This is not the intended red, but it is the first visually observed change
+caused solely by correcting stage-0 routing to BP `0x28`. It confirms stale or
+unknown TREF state affected the primitive path. Dolphin decoding then exposed
+a second concrete error in the active state: `BP C1 = 0x08fff5` selects TEV
+raster and texture swap table 1 in bits 0-3 while leaving alpha input `d` as
+`GX_CA_ZERO`. Exact libogc `GX_PASSCLR` with swap table 0 encodes the alpha
+combiner as `BP C1 = 0x08ffd0`; that is the next single-register test.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
