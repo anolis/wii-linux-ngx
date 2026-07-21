@@ -3405,6 +3405,17 @@ Expected result: red means Mini left the GP/FIFO backend in a state that only a
 PI reset clears. Green rules out the missing abort/reset pulse and leaves the
 one-time FIFO `GX_Init()` command preamble as the next bounded differential.
 
+Hardware result: **black screen / apparent hard failure.** The system did not
+reach the normal SD-card diagnostic write, unlike every recent green display
+test. Treat PI `FIFO_RESET` as unsafe at this point in the Linux takeover
+sequence. The pulse has been removed completely; do not retry it without a
+separately designed recovery sequence that restores every reset CP/PI state and
+provides an external serial progress channel.
+
+Proceed only with ordinary FIFO commands from libogc's one-time `GX_Init()`
+preamble. Those commands do not reset live MMIO state and can be placed before
+the already validated 564-byte replay.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
