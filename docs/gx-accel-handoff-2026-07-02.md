@@ -3636,6 +3636,25 @@ one known-bad register and identifies the root cause. Red means BP 0x59 is still
 a real encoding bug but not sufficient to explain the old failures; compare BP
 0x28 and TEV KSEL/swap state next.
 
+Hardware result: **mostly green, with a red rectangle confined to roughly the
+bottom-right sixth of the screen.** The fresh log validates the run at 640x480,
+`WT=0260 pos=608`, the expected token and PE-finish IRQ, and a complete drain to
+`RDoff=WToff=0x0260`.
+
+This is a decisive controlled reproduction. One BP `0x59=0` write changed the
+same proven frame from almost fully red to severely shifted/clipped while every
+other GX command remained byte-identical. The driver's historical
+`GX_SetScissorBoxOffset(0,0)` encoding is therefore a root cause of invisible or
+partial primitives. At the former 576x432 framebuffer geometry, the same
+342-pixel coordinate displacement can leave little or no visible raster output.
+
+Next replace the replay with the driver's generated direct-color setup and draw,
+but correct BP 0x59 to `0x5902acab`. Preserve the validated PI mapping, 640x480
+mode, green controls, draw-done ordering, and completion diagnostics. Red will
+prove the generated path is operational with this fix; green will expose an
+additional generated-state difference, with BP 0x28 and TEV KSEL/swap values the
+next strongest candidates.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
