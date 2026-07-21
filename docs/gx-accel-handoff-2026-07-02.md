@@ -3518,6 +3518,31 @@ which uses the native 640x480 dimensions expected by the independently validated
 capture. Keep the 564-byte command stream unchanged; a valid replay submission
 with the preamble and token padding must report `pos=800` (`0x0320`).
 
+### Run the first valid 640x480 exact-frame replay
+
+The built-in Wii command line previously used `video=gcnfb:tv=auto`, but the
+driver registers and calls `fb_get_options()` as `gcn-vifb`; the stale name did
+not select any driver options. This build changes only that argument to
+`video=gcn-vifb:tv=auto,nostalgic`. The driver's existing `nostalgic` mode uses
+the native 640x480 VI/framebuffer geometry matching the captured libogc frame.
+
+No GX command bytes changed. The corrected PI map, two green controls, 206-byte
+libogc preamble, exact 564-byte red frame, and token completion marker remain as
+in the prior build.
+
+Built image SHA-256:
+
+```text
+7f1f00fed07a726ee8ea89997771470d244b82d5e402a7b097a592e915f31c2f
+```
+
+This test is valid only if the fresh log contains both `mode is 640x480x16` and
+`f2 replay ... WT=0320 pos=800`, with no warning at the replay loader. Red then
+proves the validated libogc stream works on hardware. Green with a complete
+800-byte drain is the first legitimate evidence that state outside the capture
+still differs. Any other mode or byte count must be treated as another apparatus
+failure rather than a GX result.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
