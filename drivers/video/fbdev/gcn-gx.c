@@ -1336,20 +1336,64 @@ static const u8 gx_reference_red_frame[] = {
 #define GX_REFERENCE_FRAME_SIZE		564
 #define GX_REFERENCE_XFB_ADDR_OFFSET	0x22c
 
+static void gx_load_libogc_init_preamble(void)
+{
+	u8 i;
+
+	/* Low-level command preamble from Wii libogc GX_Init(), in order. */
+	gx_load_bp_reg(0x0F0000FF);
+	gx_load_bp_reg(0x690004ED);
+	gx_load_bp_reg(0x0F0000FF);
+	gx_load_bp_reg(0x46000273);
+
+	for (i = 0; i < 8; i++)
+		gx_load_cp_reg(0x80 | i, 0x80000000);
+	gx_load_xf_reg(0x1000, 0x0000003F);
+	gx_load_xf_reg(0x1012, 0x00000001);
+	gx_load_bp_reg(0x5800000F);
+
+	gx_load_cp_reg(0x20, 0x00000000);
+	gx_load_xf_reg(0x1006, 0x00000000);
+	gx_load_bp_reg(0x23000000);
+	gx_load_bp_reg(0x24000000);
+	gx_load_bp_reg(0x67000000);
+	gx_load_bp_reg(0x0F000000);
+
+	/* Wii __GX_SetTmemConfig(2). */
+	gx_load_bp_reg(0x8C0D8000);
+	gx_load_bp_reg(0x900DC000);
+	gx_load_bp_reg(0x8D0D8800);
+	gx_load_bp_reg(0x910DC800);
+	gx_load_bp_reg(0x8E0D9000);
+	gx_load_bp_reg(0x920DD000);
+	gx_load_bp_reg(0x8F0D9800);
+	gx_load_bp_reg(0x930DD800);
+	gx_load_bp_reg(0xAC0DA000);
+	gx_load_bp_reg(0xB00DC400);
+	gx_load_bp_reg(0xAD0DA800);
+	gx_load_bp_reg(0xB10DCC00);
+	gx_load_bp_reg(0xAE0DB000);
+	gx_load_bp_reg(0xB20DD400);
+	gx_load_bp_reg(0xAF0DB800);
+	gx_load_bp_reg(0xB30DDC00);
+}
+
 static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 {
 	u32 copy_addr = (xfb_phys >> 5) & 0x00ffffff;
 	u8 *fifo = gx_fifo_buf;
+	u32 start = fifo_pos;
 
 	if (WARN_ON_ONCE(width != 640 || height != 480))
 		return;
 	BUILD_BUG_ON(sizeof(gx_reference_red_frame) != GX_REFERENCE_FRAME_SIZE);
 
-	memcpy(fifo, gx_reference_red_frame, sizeof(gx_reference_red_frame));
-	fifo[GX_REFERENCE_XFB_ADDR_OFFSET + 0] = copy_addr >> 16;
-	fifo[GX_REFERENCE_XFB_ADDR_OFFSET + 1] = copy_addr >> 8;
-	fifo[GX_REFERENCE_XFB_ADDR_OFFSET + 2] = copy_addr;
-	fifo_pos = sizeof(gx_reference_red_frame);
+	memcpy(fifo + start, gx_reference_red_frame,
+	       sizeof(gx_reference_red_frame));
+	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 0] = copy_addr >> 16;
+	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 1] = copy_addr >> 8;
+	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 2] = copy_addr;
+	fifo_pos += sizeof(gx_reference_red_frame);
 }
 
 /*
@@ -1394,6 +1438,8 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 			break;
 		pr_info("gcn-gx: green seed complete; replaying libogc red frame\n");
 		gx_diag_finish_baseline = finish_count;
+		fifo_pos = 0;
+		gx_load_libogc_init_preamble();
 		gx_load_reference_red_frame(xfb_phys, width, height);
 		gx_submit_cmds("replay");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;

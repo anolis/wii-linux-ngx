@@ -3416,6 +3416,39 @@ Proceed only with ordinary FIFO commands from libogc's one-time `GX_Init()`
 preamble. Those commands do not reset live MMIO state and can be placed before
 the already validated 564-byte replay.
 
+### Test libogc's one-time GX command preamble before exact replay
+
+This build leaves the reverted PI reset completely absent and prepends only
+ordinary FIFO commands from libogc's Wii `GX_Init()` path to the unchanged,
+validated 564-byte red-frame replay. The preamble preserves libogc source order
+and contains:
+
+- BP bus-clock writes `0x0f0000ff`, `0x690004ed`, `0x0f0000ff`, and
+  `0x46000273`.
+- CP registers `0x80` through `0x87` initialized to `0x80000000`.
+- XF registers `0x1000=0x3f`, `0x1012=1`, and later `0x1006=0`.
+- BP `0x58=0x0f`, CP `0x20=0`, and BP `0x23`, `0x24`, `0x67`, and `0x0f`
+  cleared.
+- The 16 BP writes emitted by Wii `__GX_SetTmemConfig(2)`.
+
+The two known-good green copy controls still run first. The preamble and full
+red frame are then submitted as one contiguous FIFO stream, followed by the
+existing token completion diagnostic. No MMIO reset, texture upload, CPU XFB
+write, or alternate readout path is introduced.
+
+Built image SHA-256:
+
+```text
+e6e3ccb41784dccba32de468c27f018a8c194f0e2d9efed991614fb498c8f289
+```
+
+Expected result: red means a one-time low-level GX command omitted by the Linux
+driver is required before public draw state can rasterize. Green rules out this
+captured subset of libogc's FIFO preamble and shifts attention to low-level
+MMIO initialization or state not represented by ordinary commands. Black or a
+missing SD diagnostic write means one of these preamble commands is unsafe in
+the inherited Mini/Linux GX environment and requires a command-range bisect.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
