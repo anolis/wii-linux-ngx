@@ -3366,6 +3366,19 @@ Green means even the captured sequence cannot draw under Linux's inherited GX
 environment, shifting the investigation to initialization outside the frame:
 GX/CP/PE reset, one-time `GX_Init()` commands, or FIFO execution context.
 
+Hardware result: **solid green.** The exact ordered 564-byte frame that replays
+red in Dolphin still did not produce a visible primitive on Wii Linux. This is
+decisive evidence that the fault is outside the public draw-state stream.
+
+The strongest untested difference is PI `FIFO_RESET` at byte offset `0x18`
+(32-bit PI register index 6). Libogc's Wii `GX_AbortFrame()` pulses this register
+to 1 and back to 0; Dolphin independently names it `PI_FIFO_RESET` and models a
+write of bit 0 as resetting the gather pipe, CP FIFO registers, and video FIFO
+buffer. The Linux driver has never written this register and therefore retains
+Mini's downstream GX/FIFO state across every test. The next build performs one
+reset pulse before programming the driver's FIFO, then runs the unchanged
+validated replay.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
