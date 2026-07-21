@@ -3001,24 +3001,33 @@ Built image SHA-256:
 da235b7e262d35aabcbc01557466d4fe129c922c9f86510291a5f6e282165003
 ```
 
-Hardware result: **solid green; finish status still did not latch.** The enable
-bit itself read back correctly as `PE=0002`, proving that the corrected MMIO
-register is writable, but bit 3 remained clear for all four 20 ms windows:
+Hardware result: **solid green; the asynchronous PE-finish mechanism passed all
+positive controls, and the draw itself raised a finish IRQ before readout.** The
+known seed copy raised IRQ count 1, the independent green-baseline copy raised
+count 2, the red primitive submission raised count 3, and only then did a later
+VI callback submit the EFB readout copy, which raised count 4:
 
 ```text
-gcn-gx: PE finish positive control timed out (PE=0002)
-gcn-gx: f0 PE finish=0 wait_us=20000 status=0002
-gcn-gx: f1 PE finish=0 wait_us=20000 status=0002
-gcn-gx: f2 PE finish=0 wait_us=20000 status=0002
-gcn-gx: f3 PE finish=0 wait_us=20000 status=0002
+gcn-gx: f0 seed post: RDoff=0060 WToff=0060
+gcn-gx: PE finish IRQ count=1 status=0003
+gcn-gx: seed PE finish IRQ validated at count=1
+gcn-gx: f1 green post: RDoff=0060 WToff=0060
+gcn-gx: PE finish IRQ count=2 status=0003
+gcn-gx: green seed complete; submitting red draw
+gcn-gx: f2 draw post: RDoff=01a0 WToff=01a0
+gcn-gx: PE finish IRQ count=3 status=0003
+gcn-gx: draw PE finish observed; copying EFB readout
+gcn-gx: f3 readout post: RDoff=0060 WToff=0060
+gcn-gx: PE finish IRQ count=4 status=0003
 ```
 
-Each corresponding FIFO still drained to `RDoff=0040 WToff=0040` with
-`SR=000c`. This rules out disabled finish signalling as the explanation. PE
-finish polling remains an invalid completion mechanism until a positive
-control succeeds. The next diagnostic will use libogc's independent draw-sync
-token path (`BP 0x48`, then `BP 0x47`) and verify both token status and the
-token-value register at `PE+0x0e`.
+Every FIFO drained fully, and the draw's command-progress token arrived in 10
+microseconds while its separate PE-finish interrupt arrived asynchronously.
+The final readout remained solid green. This definitively rules out the prior
+draw and EFB-copy sharing one stream, token advancement, FIFO drain, or a fixed
+delay being too early. The direct-colour primitive reaches PE completion but
+does not produce visible EFB pixels. Continue with state/primitive diagnosis;
+do not spend another test on draw-versus-copy ordering.
 
 ### Draw-sync token positive control
 
