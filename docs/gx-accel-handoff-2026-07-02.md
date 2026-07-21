@@ -3773,6 +3773,32 @@ pre-640x480 test era and are not reliable. Prepend only these two generated
 values to the proven frame. A green result directly identifies them as harmful;
 red rules them out without conflating the other generated differences.
 
+### Challenge the proven red frame with BP 0x30/0x31
+
+This build restores the byte-exact no-preamble red frame and prepends only:
+
+```text
+BP 0x30 = 639
+BP 0x31 = 479
+```
+
+These match the generated 640x480 direct-color path. The frame subsequently
+sets zero texture generators but does not overwrite either SU-size register.
+All generated draw commands and the combined generated copy are removed from
+the active test, returning display behavior to the proven positive-control path
+apart from these ten challenge bytes.
+
+Built image SHA-256:
+
+```text
+8fff0212261866cc68007b7d507659980476e8202f451ef102fef64e41b98ee5
+```
+
+Validity requires one `susize` submission at `WT=0260 pos=608`, expected token
+and finish IRQ, and complete drain. Green proves these generated-only SU-size
+writes suppress the otherwise valid primitive. Red rules them out and moves the
+challenge method to the generated matrix-index/extra-texture-matrix group.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`

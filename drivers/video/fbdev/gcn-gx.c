@@ -1409,7 +1409,6 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
 	u32 finish_count;
-	int i;
 
 	(void)vfb;
 	finish_count = ACCESS_ONCE(gx_pe_finish_count);
@@ -1440,24 +1439,20 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	case GX_DIAG_WAIT_GREEN:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: green seed complete; submitting generated red draw\n");
+		pr_info("gcn-gx: green seed complete; challenging red frame with SU size\n");
 		gx_diag_finish_baseline = finish_count;
 		fifo_pos = 0;
-		gx_setup_vertex_color_state(width, height);
-		gx_draw_color_quad(width, height, 0xff, 0x00, 0x00);
-		gx_load_bp_reg(0x45000002);
-		for (i = 0; i < 32; i++)
-			gx_wr8(0);
-		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
-		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
-		gx_submit_cmds("drawcopy");
+		gx_load_bp_reg(0x30000000 | (u32)(width - 1));
+		gx_load_bp_reg(0x31000000 | (u32)(height - 1));
+		gx_load_reference_red_frame(xfb_phys, width, height);
+		gx_submit_cmds("susize");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;
 		break;
 
 	case GX_DIAG_WAIT_DRAW:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: generated draw+copy PE finish observed\n");
+		pr_info("gcn-gx: SU-size challenge PE finish observed\n");
 		gx_diag_phase = GX_DIAG_DONE;
 		break;
 
