@@ -4521,6 +4521,15 @@ the current race where the VI scans the same XFB that GX is asynchronously
 rewriting. Add later worker milestones around the observed 18-28 second window
 so a scheduling stop can be distinguished from a presentation failure.
 
+Correction from the established software-fallback control: the console also
+appeared to stop after the random-pool message when `init-diag.sh` was used with
+software transcoding, while removing the diagnostic init script restored normal
+console operation. Therefore the post-random apparent freeze is a property of
+the temporary init environment, not evidence that GX or its workqueue stopped.
+Do not use it as a graphics acceptance criterion. The severe blur remains a
+real GX presentation defect and still motivates hidden-XFB rendering plus a
+vertical-retrace flip.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
