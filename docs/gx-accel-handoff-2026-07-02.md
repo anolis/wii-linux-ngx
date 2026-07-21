@@ -4020,6 +4020,38 @@ write of every register and retain the pre-copy BP 0x45 fence. Red proves the
 duplicates do not provide an undocumented state-commit effect; green requires
 bisecting them.
 
+### Omit redundant draw-state rewrites
+
+The active path restores every command from the proven frame except these eight
+redundant five-byte BP writes, which are replaced by NOPs in place:
+
+```text
+frame 0x0ab: second BP 0xc0 TEV color environment
+frame 0x0b0: second BP 0xc1 TEV alpha environment
+frame 0x0b5: third  BP 0xc1 TEV alpha environment
+frame 0x0cd: second BP 0x40 Z mode
+frame 0x0d2: second BP 0x41 blend mode
+frame 0x0d7: third  BP 0x41 blend mode
+frame 0x0dc: fourth BP 0x41 blend mode
+frame 0x0eb: second BP 0x43 PE control
+```
+
+The first identical write of every affected register remains, so final visible
+register state is unchanged. BP 0x45 `PE_DONE` at frame offset 0x1e7 and all
+post-draw copy commands remain intact. The prior miscellaneous omissions are
+restored to the proven bytes, and total stream length remains unchanged.
+
+Built image SHA-256:
+
+```text
+d0ff47c9c22d6fff64e1a6a73000e58e7d0e58c2773de8cb352d5cb61c432f1c
+```
+
+Validity requires `nodup WT=0240 pos=576`, expected token and finish IRQ, and
+complete drain. Red rules out all redundant writes as hidden state-commit
+operations. Green means repetition or one write's later position matters and
+the group must be bisected.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
