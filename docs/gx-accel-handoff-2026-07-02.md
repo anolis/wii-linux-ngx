@@ -3136,6 +3136,20 @@ Built image SHA-256:
 35043de72bc98415d8d47e6ccd2a279b77d3c5fc08f3e84cb9e61d7bb3a6dd06
 ```
 
+Hardware result: **bright green**, matching the established green background
+rather than the preceding test's dark green. The intended binary completed all
+four PE-finish phases with full FIFO drains, including the red draw's separate
+finish event before readout.
+
+Correcting C1 therefore removed the darkening caused by the malformed swap-1
+selection, but it did not produce the intended red. This is still not a clean
+negative for raster output: C1 now selects swap table 0, but the driver has
+never initialized BP F6/F7's swap-table-0 channel mapping and inherits unknown
+state from Mini. A stale swizzle can transform a red vertex into green and make
+a successful full-screen write indistinguishable from the green background.
+The next test explicitly programs table 0 to RGBA identity while leaving the
+correct C1 selector and every other state value unchanged.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
