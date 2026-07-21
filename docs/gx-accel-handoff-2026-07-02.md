@@ -4633,6 +4633,22 @@ The identical GX logs for opposite visual outcomes suggest that the next useful
 diagnostic, if the green outcome repeats, is VI framebuffer-register readback
 after each presentation rather than another raster-state change.
 
+Two further boots of the same checksum refine the result. One again produced a
+stable, sharp console with working keyboard input. The next produced a stable
+but visibly blurry console, including a recognizable Tux logo at the login
+screen. Together with the earlier dark-green boot, the identical binary has
+now produced three visual states while continuing to render and accept input.
+This confirms that sharpness is nondeterministic and retracts the proposed
+one-bit magnification-filter test as the immediate next step.
+
+Source comparison then found that the active texture-cache invalidation does
+not in fact match libogc despite its comment. This driver writes
+`0x66000000` twice. Libogc's `GX_InvalidateTexAll()` writes its texture-state
+flush (`BP 0x0F`), then `0x66001000`, then `0x66001100`, then the texture-state
+flush again. Stale or partially invalidated TMEM is consistent with green,
+sharp, and blurry results from the same main-memory texture stream. Test that
+exact four-command sequence before adding VI readback or changing filtering.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
