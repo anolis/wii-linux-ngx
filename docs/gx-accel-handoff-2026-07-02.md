@@ -3856,6 +3856,33 @@ position-matrix index remains PNMTX0 in both paths; this tests whether clearing
 the otherwise-unused texture-matrix index fields or writing the extra matrix has
 an undocumented effect.
 
+### Challenge the proven frame with generated matrix state
+
+The active path starts with the generated helper's extra 2x4 identity texture
+matrix at XF 0x0078, then submits the exact 564-byte proven-red frame after
+patching both matrix-index A payloads to the generated value of zero:
+
+```text
+CP 0x30:   0x3cf3cf00 -> 0x00000000
+XF 0x1018: 0x3cf3cf00 -> 0x00000000
+XF 0x0078: 1, 0, 0, 0, 0, 1, 0, 0 (prepended)
+```
+
+The position-matrix selection remains PNMTX0. The previous TEV-pair patches are
+removed, so this isolates the generated matrix helper's effective differences
+as one group.
+
+Built image SHA-256:
+
+```text
+38a1c7bdebe89d23cc2f7210cce2c66830faf4f2cbb2f8dcc0cd1063282c711f
+```
+
+Validity requires `matrix WT=0280 pos=640`, expected token and finish IRQ, and
+complete drain. Red rules out the zero matrix indices and extra XF 0x0078 matrix
+together. Green means this group suppresses the proven primitive and must be
+split into separate challenges.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
