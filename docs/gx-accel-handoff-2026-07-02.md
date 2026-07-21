@@ -4130,6 +4130,27 @@ NOPs at frame offsets 0x0f..0x2e, immediately after initial BP 0x43. Red rules
 out the capture's remaining internal NOP pacing; green identifies a required
 delay or write-gather boundary before the subsequent setup commands.
 
+### Remove the initial 32-NOP block
+
+The loader emits original bytes `0x000..0x00e` followed immediately by original
+bytes `0x02f..0x233`, physically omitting only the initial 32 NOP bytes at
+`0x00f..0x02e`. The post-draw NOP block from the previous test is fully
+restored. This again produces a 532-byte replay and moves the XFB-address patch
+to emitted offset `0x20c` without changing its source command.
+
+Every semantic command and payload remains byte-exact with the proven frame.
+With the submit token and final alignment, total FIFO length remains 544 bytes.
+
+Built image SHA-256:
+
+```text
+51c9442318c178645fde6b9ceabf7cd5d65b891d43ed08c35defb2431d530174
+```
+
+Validity requires `noinitnop WT=0220 pos=544`, expected token and third finish
+IRQ, and complete drain. Red rules out the initial NOP block as pacing. Green
+means a no-op delay or gather boundary after the initial BP 0x43 is required.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`

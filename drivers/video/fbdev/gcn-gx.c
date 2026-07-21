@@ -1337,8 +1337,8 @@ static const u8 gx_reference_red_frame[] = {
 };
 
 #define GX_REFERENCE_FRAME_SIZE		564
-#define GX_REFERENCE_POST_DRAW_NOPS_OFFSET	0x1ec
-#define GX_REFERENCE_POST_DRAW_NOPS_SIZE		32
+#define GX_REFERENCE_INITIAL_NOPS_OFFSET		0x00f
+#define GX_REFERENCE_INITIAL_NOPS_SIZE		32
 #define GX_REFERENCE_COMPACT_FRAME_SIZE		532
 #define GX_REFERENCE_COMPACT_XFB_ADDR_OFFSET	0x20c
 
@@ -1394,16 +1394,16 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 		return;
 	BUILD_BUG_ON(sizeof(gx_reference_red_frame) != GX_REFERENCE_FRAME_SIZE);
 	BUILD_BUG_ON(GX_REFERENCE_COMPACT_FRAME_SIZE !=
-		     GX_REFERENCE_FRAME_SIZE - GX_REFERENCE_POST_DRAW_NOPS_SIZE);
+		     GX_REFERENCE_FRAME_SIZE - GX_REFERENCE_INITIAL_NOPS_SIZE);
 
-	/* Physically omit only the post-draw 32-NOP pacing block. */
+	/* Physically omit only the initial 32-NOP pacing block. */
 	memcpy(fifo + start, gx_reference_red_frame,
-	       GX_REFERENCE_POST_DRAW_NOPS_OFFSET);
-	memcpy(fifo + start + GX_REFERENCE_POST_DRAW_NOPS_OFFSET,
-	       gx_reference_red_frame + GX_REFERENCE_POST_DRAW_NOPS_OFFSET +
-	       GX_REFERENCE_POST_DRAW_NOPS_SIZE,
-	       GX_REFERENCE_FRAME_SIZE - GX_REFERENCE_POST_DRAW_NOPS_OFFSET -
-	       GX_REFERENCE_POST_DRAW_NOPS_SIZE);
+	       GX_REFERENCE_INITIAL_NOPS_OFFSET);
+	memcpy(fifo + start + GX_REFERENCE_INITIAL_NOPS_OFFSET,
+	       gx_reference_red_frame + GX_REFERENCE_INITIAL_NOPS_OFFSET +
+	       GX_REFERENCE_INITIAL_NOPS_SIZE,
+	       GX_REFERENCE_FRAME_SIZE - GX_REFERENCE_INITIAL_NOPS_OFFSET -
+	       GX_REFERENCE_INITIAL_NOPS_SIZE);
 	fifo[start + GX_REFERENCE_COMPACT_XFB_ADDR_OFFSET + 0] = copy_addr >> 16;
 	fifo[start + GX_REFERENCE_COMPACT_XFB_ADDR_OFFSET + 1] = copy_addr >> 8;
 	fifo[start + GX_REFERENCE_COMPACT_XFB_ADDR_OFFSET + 2] = copy_addr;
@@ -1450,18 +1450,18 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	case GX_DIAG_WAIT_GREEN:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: green seed complete; removing post-draw NOP block\n");
+		pr_info("gcn-gx: green seed complete; removing initial NOP block\n");
 		gx_diag_finish_baseline = finish_count;
 		fifo_pos = 0;
 		gx_load_reference_red_frame(xfb_phys, width, height);
-		gx_submit_cmds("nonops");
+		gx_submit_cmds("noinitnop");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;
 		break;
 
 	case GX_DIAG_WAIT_DRAW:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: no-post-draw-NOP challenge PE finish observed\n");
+		pr_info("gcn-gx: no-initial-NOP challenge PE finish observed\n");
 		gx_diag_phase = GX_DIAG_DONE;
 		break;
 
