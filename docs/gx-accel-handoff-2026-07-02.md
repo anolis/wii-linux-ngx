@@ -3844,6 +3844,18 @@ complete drain. Red rules out all three paired-register differences together.
 Green means one of the fields thought inactive is required and this three-value
 group must be split.
 
+Hardware result: **red.** The fresh log validates 640x480 mode,
+`tevpairs WT=0240 pos=576`, expected token, PE-finish IRQ, and complete drain to
+`RDoff=WToff=0x0240`. Generated BP 0x28, 0xf6, and 0xf7 payloads are all harmless
+for this one-stage `GX_PASSCLR` draw and are ruled out together.
+
+Next challenge the proven frame with the generated matrix helper's effective
+differences: patch CP 0x30 and XF 0x1018 matrix-index A values to zero, and
+prepend its extra eight-register identity texture matrix at XF 0x0078. The
+position-matrix index remains PNMTX0 in both paths; this tests whether clearing
+the otherwise-unused texture-matrix index fields or writing the extra matrix has
+an undocumented effect.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
