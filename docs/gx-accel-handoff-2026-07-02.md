@@ -3150,6 +3150,29 @@ a successful full-screen write indistinguishable from the green background.
 The next test explicitly programs table 0 to RGBA identity while leaving the
 correct C1 selector and every other state value unchanged.
 
+### Initialize TEV swap table 0 to identity
+
+The direct-colour setup now writes libogc's swap-table-0 channel mapping before
+the corrected BP `0x28` stage order:
+
+```text
+BP F6 low nibble = 0x4  (R=RED,   G=GREEN)
+BP F7 low nibble = 0xE  (B=BLUE,  A=ALPHA)
+```
+
+The full writes are `F6000004` and `F700000E`. Their konst-selection fields are
+zero, which is irrelevant because this one-stage `GX_PASSCLR` configuration
+does not use konst inputs. C1 continues to select swap table 0. No geometry,
+TEV formula, PE, copy, or completion state changes. Solid red is the expected
+result if prior inherited swap-table state was transforming the red primitive;
+green means the draw still does not produce a distinguishable EFB result.
+
+Built image SHA-256:
+
+```text
+ee5ae16a80759d712024814f9f5304008e2c3f779c5938d6fb9041b34f63b075
+```
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
