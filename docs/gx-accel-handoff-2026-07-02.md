@@ -3261,6 +3261,19 @@ green means the remaining cause is in state absent from the driver's setup but
 present in the DFF initial snapshot, rather than the already matched frame
 payload. Any nonuniform result must be confirmed visually before attribution.
 
+Hardware result: **solid green.** Matching libogc's complete draw-time BP 0x40
+and BP 0x41 values did not make the red primitive visible. This rules out the
+remaining PE-state differential contained in the recorded 204-byte frame.
+
+The comparison therefore moves to initialization state stored only in the DFF
+snapshot. The strongest missing command is libogc's unconditional
+`XF 0x1000 = 0x0000003f` write in `__GX_InitRevBits()`. Dolphin names 0x1000
+`XFMEM_ERROR` but does not emulate its behavior, so describing the write as an
+error clear remains a hardware hypothesis rather than a confirmed semantic.
+The driver never writes this register. An inherited XF fault remains consistent
+with CP FIFO consumption and functional BP copies alongside absent primitive
+output, making this the next isolated test.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
