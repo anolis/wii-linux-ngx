@@ -140,6 +140,7 @@ static inline u16 cp_read(int reg)
 #define PI_REG_FIFO_END		3
 #define PI_REG_FIFO_WPTR	4
 #define PI_REG_FIFO_CTRL	5
+#define PI_REG_FIFO_RESET	6
 #define PI_FIFO_CTRL_EN		BIT(0)
 
 static inline void pi_write(int reg, u32 val)
@@ -1466,6 +1467,15 @@ int gcn_gx_init(void)
 	cp_regs = (u16 __iomem *)(hw_base + GX_CP_OFFSET);
 	pe_regs = (u16 __iomem *)(hw_base + GX_PE_OFFSET);
 	pi_regs = (u32 __iomem *)(hw_base + 0x3000);
+
+	/* Match Wii GX_AbortFrame before inheriting or programming FIFO state. */
+	cp_write(CP_REG_CTRL, 0);
+	pi_write(PI_REG_FIFO_RESET, 1);
+	mb();
+	udelay(10);
+	pi_write(PI_REG_FIFO_RESET, 0);
+	mb();
+	udelay(10);
 
 	/* Clear stale PE events before the finish IRQ line is unmasked. */
 	pe_write(PE_REG_INTR_STATUS, PE_TOKEN_BIT | PE_FINISH_BIT);

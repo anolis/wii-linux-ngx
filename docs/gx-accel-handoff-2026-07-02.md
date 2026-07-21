@@ -3379,6 +3379,32 @@ Mini's downstream GX/FIFO state across every test. The next build performs one
 reset pulse before programming the driver's FIFO, then runs the unchanged
 validated replay.
 
+### Test PI FIFO reset before GX initialization
+
+The driver now disables CP reads and reproduces libogc's Wii abort pulse before
+programming any FIFO state:
+
+```text
+PI_FIFO_RESET (0x0c003018) = 1
+wait 10 us
+PI_FIFO_RESET (0x0c003018) = 0
+wait 10 us
+```
+
+Memory barriers order both MMIO writes. The delays are deliberately longer than
+libogc's short timebase waits. After the pulse, the existing FIFO initialization,
+two green copy controls, and byte-exact 564-byte red replay run unchanged.
+
+Built image SHA-256:
+
+```text
+40cd0acd23db470e380b148f36863805995d07ca52311d72785b15f664f2ed1b
+```
+
+Expected result: red means Mini left the GP/FIFO backend in a state that only a
+PI reset clears. Green rules out the missing abort/reset pulse and leaves the
+one-time FIFO `GX_Init()` command preamble as the next bounded differential.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
