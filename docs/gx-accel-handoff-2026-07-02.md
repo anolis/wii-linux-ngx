@@ -4498,6 +4498,29 @@ Built image SHA-256:
 bbf7629e619aa6abefb44a2681373b2974bee77998e08c811f1006791797f991
 ```
 
+Hardware result: **the boot gate worked as ordered, but did not fix either
+visible symptom.** The display remained blurry and stopped visibly updating
+immediately after the `random: nonblocking pool is initialized` line. The
+fresh file begins at uptime 4.11, records the script's `after sleep` marker at
+24.16, and reaches `after blink` and `before shell` at 28.52/28.55 seconds.
+Thus the apparent freeze precedes the diagnostic SD write and remains confined
+to presentation; userspace and the kernel continue running.
+
+The gate markers validate that no GX work ran before `SYSTEM_RUNNING` at 3.716
+seconds. Nevertheless, EHCI hit the same bad lock at 0.438 seconds and the same
+address-zero DMA warning before the gate opened. This proves those EHCI
+diagnostics are independent of GX execution and must not be used to evaluate
+the graphics worker. After the gate opened, runs 1, 60, and 300 and the first
+four token/drain checks all passed.
+
+The next test should use the two physical XFB pages already allocated and
+tracked by `gcnfb`: the worker renders only to the non-visible page, marks that
+page complete after the PE token/FIFO drain, and the VI DI1 handler flips to it
+during vertical retrace before queueing the next back-page render. This removes
+the current race where the VI scans the same XFB that GX is asynchronously
+rewriting. Add later worker milestones around the observed 18-28 second window
+so a scheduling stop can be distinguished from a presentation failure.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
