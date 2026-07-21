@@ -4452,6 +4452,29 @@ through the 20-second `dmesg` write, `sync`, slot-LED blink, and USB keyboard
 activity. Repeated columns, a post-write freeze, or FIFO/token errors are
 separate failures and must be recorded precisely.
 
+Hardware result: **failed, with a new actionable kernel diagnostic.** The
+console contained recognizable but severely blurred text and a blinking cursor,
+then visibly stopped updating around the diagnostic SD write. The script itself
+continued through `after blink` and `before shell`, proving this remained a
+display-path failure rather than a CPU crash.
+
+The worker positive controls passed: run 1 at 0.385 seconds, run 60 at 5.117
+seconds, and run 300 at 13.125 seconds. `live0` and the following `live`
+submission both reached their expected PE tokens and drained to
+`RDoff=WToff=0x02a0`. However, the first live submission overlapped built-in
+EHCI initialization and exposed `BUG: spinlock bad magic` in `ehci_halt()` at
+0.494 seconds. The affected lock was the EHCI object's lock at `0xd2d139e4`,
+not the GX work-parameter lock. PID 1 then reported a suspected lockup for about
+2.6 seconds before initialization continued. EHCI subsequently also emitted a
+DMA-debug warning while unmapping an unallocated address-zero transfer.
+
+Do not treat this run as a clean evaluation of system-workqueue stability or
+image quality. The immediate next test must suppress GX work until
+`system_state == SYSTEM_RUNNING`, leaving the worker, command stream, and
+single-XFB behavior unchanged. If that removes the EHCI diagnostics, boot-time
+driver initialization is a required scheduling boundary. The blur separately
+motivates vblank presentation to a back XFB after worker rendering is stable.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
