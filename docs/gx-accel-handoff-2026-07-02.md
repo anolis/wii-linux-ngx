@@ -4561,6 +4561,34 @@ with a responsive blinking cursor and keyboard input. Any repeated columns,
 blur, stale half-frame, page alternation failure, or new FIFO warning is a real
 graphics failure.
 
+Hardware result: **page ownership and presentation are stable; image sharpness
+and userspace console setup remain unresolved.** The display booted normally,
+kept a blinking cursor, and did not freeze. Shift+PageUp/PageDown continued to
+scroll the kernel console, but ordinary typing produced no login input. The
+image remained severely blurry.
+
+The persistent normal-init log validates exact page alternation for the first
+four presentations: `0x0172e000`, `0x01698000`, `0x0172e000`, then
+`0x01698000`. Both initial live submissions reached their PE tokens and drained
+to `RDoff=WToff=0x02a0`. Worker milestones continued through runs 60, 300, 450,
+600, and 750 at approximately 5.8, 13.8, 18.8, 23.8, and 28.9 seconds. This is
+positive evidence that the worker and vblank page-flip protocol remain active
+well beyond the former apparent-freeze interval. No presentation or FIFO
+failure was found.
+
+The missing typing is independently explained by the root filesystem's
+`auth.log`: every getty for `/dev/tty1` through `/dev/tty6` exits with `No such
+file or directory`, while `.config` has `CONFIG_DEVTMPFS` disabled. The working
+scrollback keys are handled by the kernel console and therefore do not prove a
+getty is attached. Fix this separately by enabling `CONFIG_DEVTMPFS` and
+`CONFIG_DEVTMPFS_MOUNT`; do not attribute it to GX.
+
+The next graphics-only sharpness test should clear bit 4 of texture mode BP
+`0x80`, changing the active value from `0x80000090` (linear magnification) to
+`0x80000080` (nearest magnification). Do not combine that one-bit sampler test
+with changes to the validated tiling, FIFO stream, copy filter, or XFB
+presentation path.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
