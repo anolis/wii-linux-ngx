@@ -424,35 +424,6 @@ static void gx_tile_rgb565(const u16 *src, u16 *dst, u32 width, u32 height)
 	}
 }
 
-/* Fill a GX-tiled RGB565 texture with four unmistakable colour quadrants. */
-static void gx_fill_test_pattern_rgb565(u16 *dst, u32 width, u32 height)
-{
-	u32 bw = width >> 2;
-	u32 bh = height >> 2;
-	u32 tx, ty, row, col;
-
-	for (ty = 0; ty < bh; ty++) {
-		for (tx = 0; tx < bw; tx++) {
-			u16 *tile = dst + (ty * bw + tx) * 16;
-
-			for (row = 0; row < 4; row++) {
-				u32 y = ty * 4 + row;
-
-				for (col = 0; col < 4; col++) {
-					u32 x = tx * 4 + col;
-					u16 color;
-
-					if (y < height / 2)
-						color = x < width / 2 ? 0xf800 : 0x07e0;
-					else
-						color = x < width / 2 ? 0x001f : 0xffff;
-					tile[row * 4 + col] = color;
-				}
-			}
-		}
-	}
-}
-
 /*
  * gx_tile_rgb888 - convert linear RGB888 (packed u32) to GX RGB565 tiles.
  *
@@ -911,7 +882,7 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 }
 
 /* Add one position-derived texcoord and make TEV stage 0 sample texmap 0. */
-static void gx_setup_pattern_texture_state(u16 width, u16 height)
+static void gx_setup_rgb565_texture_state(u16 width, u16 height)
 {
 	gx_setup_vertex_color_state(width, height);
 
@@ -1446,6 +1417,28 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 	fifo_pos += sizeof(gx_reference_red_frame);
 }
 
+static void gx_submit_live_rgb565(const void *vfb, u32 xfb_phys,
+				  u16 width, u16 height, const char *phase)
+{
+	int i;
+
+	gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
+	flush_dcache_range((unsigned long)gx_tex_buf,
+			   (unsigned long)gx_tex_buf +
+			   (unsigned long)width * height * 2);
+
+	fifo_pos = 0;
+	gx_setup_rgb565_texture_state(width, height);
+	gx_setup_texture_rgb565(gx_tex_buf, width, height);
+	gx_draw_color_quad(width, height, 0xff, 0x00, 0x00);
+	gx_load_bp_reg(0x45000002);
+	for (i = 0; i < 32; i++)
+		gx_wr8(0);
+	gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
+	gx_copy_efb_to_xfb(xfb_phys, width, height, true);
+	gx_submit_cmds(phase);
+}
+
 /*
  * gcn_gx_blit_fb_rgb565 - asynchronous PE-finish primitive diagnostic.
  *
@@ -1456,9 +1449,7 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
 	u32 finish_count;
-	int i;
 
-	(void)vfb;
 	finish_count = ACCESS_ONCE(gx_pe_finish_count);
 
 	switch (gx_diag_phase) {
@@ -1487,33 +1478,21 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	case GX_DIAG_WAIT_GREEN:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: green seed complete; testing tiled RGB565 texture\n");
+		pr_info("gcn-gx: green seed complete; enabling live RGB565 texture\n");
 		gx_diag_finish_baseline = finish_count;
-		gx_fill_test_pattern_rgb565((u16 *)gx_tex_buf, width, height);
-		flush_dcache_range((unsigned long)gx_tex_buf,
-				   (unsigned long)gx_tex_buf +
-				   (unsigned long)width * height * 2);
-		fifo_pos = 0;
-		gx_setup_pattern_texture_state(width, height);
-		gx_setup_texture_rgb565(gx_tex_buf, width, height);
-		gx_draw_color_quad(width, height, 0xff, 0x00, 0x00);
-		gx_load_bp_reg(0x45000002);
-		for (i = 0; i < 32; i++)
-			gx_wr8(0);
-		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
-		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
-		gx_submit_cmds("texquad");
+		gx_submit_live_rgb565(vfb, xfb_phys, width, height, "live0");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;
 		break;
 
 	case GX_DIAG_WAIT_DRAW:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: tiled texture draw+copy PE finish observed\n");
+		pr_info("gcn-gx: first live RGB565 frame PE finish observed\n");
 		gx_diag_phase = GX_DIAG_DONE;
 		break;
 
 	case GX_DIAG_DONE:
+		gx_submit_live_rgb565(vfb, xfb_phys, width, height, "live");
 		break;
 	}
 }

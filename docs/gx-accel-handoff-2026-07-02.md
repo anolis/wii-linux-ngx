@@ -4371,6 +4371,32 @@ source with the live linear RGB565 virtual framebuffer passed by `gcnfb`. Tile
 and submit it continuously after the diagnostic startup so visible console
 updates validate real framebuffer integration and repeated-frame stability.
 
+### Render the live Linux RGB565 framebuffer continuously
+
+The active path removes the generated quadrant filler and uses the existing
+`gx_tile_rgb565()` conversion on the `vfb_mem` pointer passed by `gcnfb`. Each
+frame is tiled into the same validated MEM1 texture buffer, flushed, bound, and
+rendered through the unchanged position-texgen/TMU/TEV/EFB/XFB command path.
+
+After the two startup green controls, `live0` submits the first framebuffer
+image and waits for its PE-finish IRQ. The `GX_DIAG_DONE` state then submits a
+fresh `live` frame on every subsequent VI callback. This deliberately retains
+the complete diagnostic state setup, BP 0x45/NOP gap, cache invalidation, and
+clear-enabled copy while testing integration and stability; reduction and
+performance cleanup come after visible live output is established.
+
+Built image SHA-256:
+
+```text
+4170bb24fc6100c830e89adf487c4227a4d2b613448e1389c2e9468e335ad8cd
+```
+
+Validity requires both `live0 WT=02a0 pos=672` with token `0x0003` and a later
+`live WT=02a0 pos=672` with token `0x0004`, finish IRQs, and complete drains.
+Success is a correctly oriented, correctly coloured Linux console that visibly
+updates when text is entered. A static snapshot, corruption, wrong quadrant-like
+layout, or green screen must be reported separately.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
