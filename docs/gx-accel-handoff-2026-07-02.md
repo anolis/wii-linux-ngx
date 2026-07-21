@@ -4052,6 +4052,17 @@ complete drain. Red rules out all redundant writes as hidden state-commit
 operations. Green means repetition or one write's later position matters and
 the group must be bisected.
 
+Hardware result: **red.** The fresh log validates 640x480 mode,
+`nodup WT=0240 pos=576`, token `0x0003`, PE-finish IRQ, and complete drain to
+`RDoff=WToff=0x0240`. Repeated BP 0xc0/0xc1 TEV state and BP 0x40/0x41/0x43 PE
+state have no hidden commit effect and are ruled out together.
+
+Next replace only the frame's pre-copy BP 0x45 `PE_DONE` command at offset
+0x1e7 with five NOPs. Retain the following 32 NOP bytes and every copy command.
+Red proves the internal draw-done marker is not what makes the exact frame
+visible; green identifies the fence itself as required even though the earlier
+generated split-submission test used the same register.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
