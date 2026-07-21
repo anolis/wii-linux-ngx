@@ -2854,6 +2854,27 @@ Built image SHA-256:
 6ba6b9ad4f7fc22415b4a239a403023ae5a19ec89753b43b155c756d979ed4d7
 ```
 
+Hardware result: **solid green, but the PE-finish positive control failed.**
+The first four known-good copy submissions all drained completely and reported
+`SR=000c RDoff=0040 WToff=0040`, but PE interrupt status remained `0000` for
+the full 20 ms polling window each time:
+
+```text
+gcn-gx: PE finish positive control timed out (PE=0000)
+gcn-gx: f0 PE finish=0 wait_us=20000 status=0000
+gcn-gx: f1 PE finish=0 wait_us=20000 status=0000
+gcn-gx: f2 PE finish=0 wait_us=20000 status=0000
+gcn-gx: f3 PE finish=0 wait_us=20000 status=0000
+```
+
+This confirms the corrected register access does not destabilize the known
+copy-clear path, but it does **not** validate polling with PE finish interrupts
+disabled. Do not use this result to infer that `BP 0x45` failed or that PE
+finish cannot be polled. Libogc enables finish signalling (bit 1) as part of
+its PE initialization before relying on the event. The next single-variable
+control will enable that PE source while leaving hwirq 10 masked at the
+Flipper PIC, then poll the same latched PE status from VI IRQ context.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
