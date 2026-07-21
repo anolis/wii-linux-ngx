@@ -2949,6 +2949,31 @@ Built image SHA-256:
 9cc481b9256df4c913fe175fed91f46337c0299b93c799141403418db287a476
 ```
 
+Hardware result: **solid green; both tokens advanced, but no primitive pixels
+were visible.** The two independently labelled streams both drained fully:
+
+```text
+gcn-gx: f0 draw PE token=0001 expected=0001 wait_us=10
+gcn-gx: f0 draw post: RDoff=01a0 WToff=01a0
+gcn-gx: f1 copy PE token=0002 expected=0002 wait_us=330
+gcn-gx: f1 copy post: RDoff=0060 WToff=0060
+```
+
+The pattern repeated for tokens 3 and 4. This rules out the copy merely
+overtaking unconsumed draw commands, but it also corrects the interpretation of
+the prior token positive control: **token-value advancement is a validated BP
+command-progress marker, not a validated raster-completion fence.** The draw
+token arrived in only 10 microseconds while the actual EFB copy held the token
+for roughly 330 microseconds. `BP 0x45` followed by a token therefore does not
+block token progression until the PE finish event is serviced.
+
+Next test: register Flipper PIC hwirq 10 as the real PE-finish IRQ and split the
+experiment across VI callbacks. First validate the handler against known-good
+copy completion. Then submit the red draw and return from VI IRQ context. Only
+after the separate PE-finish handler fires should a later VI callback copy EFB
+to XFB. This avoids the impossible nested-interrupt wait and tests the actual
+completion mechanism used by libogc.
+
 Hardware result: **solid green; finish status still did not latch.** The enable
 bit itself read back correctly as `PE=0002`, proving that the corrected MMIO
 register is writable, but bit 3 remained clear for all four 20 ms windows:
