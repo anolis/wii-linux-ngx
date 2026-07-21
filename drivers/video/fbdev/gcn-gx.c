@@ -839,6 +839,9 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_bp_reg(0x30000000 | (u32)(width - 1));
 	gx_load_bp_reg(0x31000000 | (u32)(height - 1));
 
+	/* Match libogc's unconditional XF initialization before vertex state. */
+	gx_load_xf_reg(0x1000, 0x0000003F);
+
 	/* One direct colour channel, no texcoord generators. */
 	gx_load_xf_reg(0x1008, 0x00000001);
 	gx_load_xf_reg(0x1009, 0x00000001);

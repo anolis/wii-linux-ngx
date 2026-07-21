@@ -3274,6 +3274,31 @@ The driver never writes this register. An inherited XF fault remains consistent
 with CP FIFO consumption and functional BP copies alongside absent primitive
 output, making this the next isolated test.
 
+### Test libogc XF 0x1000 initialization
+
+The active direct-color setup now adds one command before its existing XF
+vertex state:
+
+```text
+XF 0x1000 = 0x0000003f
+```
+
+This is byte-exact with the unconditional write in libogc
+`__GX_InitRevBits()` and with the validated DFF initial snapshot. The prior
+exact PE-state values remain in place; no other BP, CP, XF, geometry, copy, or
+completion behavior changed.
+
+Built image SHA-256:
+
+```text
+2235039082ad18edb708b6cd2ffeebdc37bd2b26c7fbae6c98d886f4c7365668
+```
+
+Expected result: red supports an inherited XF error/state latch as the cause of
+discarded primitives. Green rules out this missing libogc initialization write
+and moves the differential to the other initial XF state, beginning with
+`XF 0x1012 = 1` and the channel-1 defaults.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
