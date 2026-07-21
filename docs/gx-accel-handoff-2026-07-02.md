@@ -4680,6 +4680,28 @@ at least three consecutive sharp and responsive console boots. Any green seed
 that persists after live submissions or any blurry console is a failure of
 this cache-invalidation hypothesis.
 
+Hardware result: **inconclusive for texture invalidation; all three boots had
+a display-only presentation failure before the changed commands mattered.**
+The last visible line was `fifo_init: done`, but persistent logs prove that the
+kernel continued normally: root and devtmpfs mounted, normal init ran, the GX
+seed and live phases reached their PE tokens and drained, XFB presentation
+markers alternated, worker milestones reached run 750, and at least one run
+ended through an orderly userspace reboot.
+
+The known green seed copy is submitted and presented before
+`gx_setup_texture_rgb565()` emits the corrected invalidation sequence. It also
+failed to become visible. Therefore these runs neither validate nor reject the
+libogc invalidation fix. They instead reproduce the existing intermittent
+disconnect between successful software `present` markers and what VI scans.
+
+The next diagnostic must correlate three facts for each of the first four
+presentations: the completed physical XFB address, uncached words read directly
+from that XFB page after GX completion, and hardware readback of VI TFBL/BFBL
+immediately after `vi_set_framebuffer()`. This separates failure to write XFB,
+failure to latch the VI page address, and failure downstream of correctly
+latched registers. Keep the corrected cache sequence in place until that
+earlier presentation failure is isolated.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
