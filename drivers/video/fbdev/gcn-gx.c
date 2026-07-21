@@ -773,6 +773,70 @@ static void gx_setup_constant_white_state(u16 width, u16 height)
 	gx_load_cp_reg(0x90, 0x00000000);
 }
 
+static void gx_setup_vertex_color_state(u16 width, u16 height)
+{
+	u32 xo = 0x156;
+	u32 yo = 0x156;
+
+	/* Direct RGBA8 vertex colour, no texture, no blending or depth test. */
+	gx_load_bp_reg(0x40000000);
+	gx_load_bp_reg(0x41000018);
+	gx_load_bp_reg(0x42000000);
+	gx_load_bp_reg(0x43000040);
+	gx_load_bp_reg(0x44000003);
+	gx_load_bp_reg(0x68000000);
+	gx_load_bp_reg(0xF33F0000);
+
+	/* One colour channel, no texgens, one TEV stage, culling disabled. */
+	gx_load_bp_reg(0x00000010);
+	gx_load_bp_reg(0x20000000 | ((xo & 0x7ff) << 12) | (yo & 0x7ff));
+	gx_load_bp_reg(0x21000000 |
+		       (((xo + width - 1) & 0x7ff) << 12) |
+		       ((yo + height - 1) & 0xfff));
+	gx_load_bp_reg(0x59000000);
+
+	/* TEV stage 0 = rasterized vertex colour/alpha (GX_PASSCLR). */
+	gx_load_bp_reg(0xC008FFFA);
+	gx_load_bp_reg(0xC108FFF5);
+	gx_load_bp_reg(0x25000000);
+	gx_load_bp_reg(0x30000000 | (u32)(width - 1));
+	gx_load_bp_reg(0x31000000 | (u32)(height - 1));
+
+	/* One direct colour channel, no texcoord generators. */
+	gx_load_xf_reg(0x1008, 0x00000001);
+	gx_load_xf_reg(0x1009, 0x00000001);
+	gx_load_xf_reg(0x100e, 0x00000401);
+	gx_load_xf_reg(0x1010, 0x00000401);
+	gx_load_xf_reg(0x1005, 0);
+	gx_load_xf_reg(0x103f, 0);
+	gx_load_identity_pos_mtx0();
+
+	/* Pixel-space viewport and orthographic projection. */
+	gx_load_xf_regs_n(0x101a, 6);
+	wg_f32_bits(f32_from_u16(width >> 1));
+	wg_f32_bits(F32_NEG(f32_from_u16(height >> 1)));
+	wg_f32_bits(F32_16M);
+	wg_f32_bits(f32_from_u16((width >> 1) + 342));
+	wg_f32_bits(f32_from_u16((height >> 1) + 342));
+	wg_f32_bits(F32_16M);
+
+	gx_load_xf_regs_n(0x1020, 7);
+	wg_f32_bits(f32_div_u16(2, width));
+	wg_f32_bits(F32_NEG_ONE);
+	wg_f32_bits(F32_NEG(f32_div_u16(2, height)));
+	wg_f32_bits(F32_ONE);
+	wg_f32_bits(F32_NEG_ONE);
+	wg_f32_bits(F32_ZERO);
+	gx_wr32be(1);
+
+	/* VTXFMT0: direct XY/F32 position followed by direct RGBA8 colour. */
+	gx_load_cp_reg(0x50, 0x00002200);
+	gx_load_cp_reg(0x60, 0x00000000);
+	gx_load_cp_reg(0x70, 0x40016008);
+	gx_load_cp_reg(0x80, 0x80000000);
+	gx_load_cp_reg(0x90, 0x00000000);
+}
+
 /*
  * gx_setup_texture_rgb565 - bind a tiled RGB565 buffer to texmap 0.
  *
@@ -999,7 +1063,7 @@ EXPORT_SYMBOL_GPL(gcn_gx_copy_efb_to_xfb);
  * The setup functions write commands into CPU cache; without the flush
  * the GP's DMA bus reads stale zeros from physical RAM.
  */
-static void gx_submit_cmds(void)
+static void gx_submit_cmds(const char *phase)
 {
 	static int frame_log;	/* log frames 0-3 in detail */
 	static bool logged_first_slow;
@@ -1014,6 +1078,13 @@ static void gx_submit_cmds(void)
 	u16 pe_status, pe_token;
 	int pe_timeout;
 	int timeout;
+
+	/* End every submission with a unique, directly readable PE marker. */
+	gx_expected_token++;
+	if (!gx_expected_token)
+		gx_expected_token++;
+	gx_load_bp_reg(0x48000000 | gx_expected_token);
+	gx_load_bp_reg(0x47000000 | gx_expected_token);
 
 	/* Pad to 32-byte boundary (GP DMA requires 32-byte alignment) */
 	while (fifo_pos & 0x1f)
@@ -1041,8 +1112,8 @@ static void gx_submit_cmds(void)
 	pi_write(PI_REG_FIFO_CTRL, PI_FIFO_CTRL_EN);
 
 	if (do_log)
-		pr_info("gcn-gx: f%u pre: SR=%04x RD=%04x WT=%04x pos=%u\n",
-			log_frame, cp_read(CP_REG_STATUS), 0,
+		pr_info("gcn-gx: f%u %s pre: SR=%04x RD=%04x WT=%04x pos=%u\n",
+			log_frame, phase, cp_read(CP_REG_STATUS), 0,
 			phys_wt - phys_start, fifo_pos);
 
 	/* Enable PE events and acknowledge stale token/finish status. */
@@ -1078,8 +1149,8 @@ static void gx_submit_cmds(void)
 			     pe_status, pe_token, gx_expected_token);
 	}
 	if (do_log)
-		pr_info("gcn-gx: f%u PE token_status=%u finish=%u token=%04x expected=%04x wait_us=%u status=%04x\n",
-			log_frame, !!(pe_status & PE_TOKEN_BIT),
+		pr_info("gcn-gx: f%u %s PE token_status=%u finish=%u token=%04x expected=%04x wait_us=%u status=%04x\n",
+			log_frame, phase, !!(pe_status & PE_TOKEN_BIT),
 			!!(pe_status & PE_FINISH_BIT), pe_token,
 			gx_expected_token, (2000 - pe_timeout) * 10, pe_status);
 
@@ -1112,8 +1183,8 @@ static void gx_submit_cmds(void)
 		}
 	}
 	if (do_log) {
-		pr_info("gcn-gx: f%u post: SR=%04x RDoff=%04x WToff=%04x\n",
-			log_frame, cp_read(CP_REG_STATUS),
+		pr_info("gcn-gx: f%u %s post: SR=%04x RDoff=%04x WToff=%04x\n",
+			log_frame, phase, cp_read(CP_REG_STATUS),
 			cp_rd - phys_start, cp_wt - phys_start);
 		if (gx_log_next_submit)
 			gx_log_next_submit = false;
@@ -1167,25 +1238,26 @@ static void gx_submit_cmds(void)
 }
 
 /*
- * gcn_gx_blit_fb_rgb565 - confirmed GX copy-clear baseline.
+ * gcn_gx_blit_fb_rgb565 - split direct-colour primitive diagnostic.
  *
  * This deliberately ignores vfb until primitive rasterization is known to
- * work.  GX copy-clear has repeatedly produced a stable green EFB and copied
- * it to the XFB, so keep that small path as the hardware reference point.
+ * work. Draw a red quad and wait for a PE token before copying EFB to XFB;
+ * copy-clear restores green as the failure/readout background.
  */
 void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
 	(void)vfb;
 
 	fifo_pos = 0;
+	gx_setup_vertex_color_state(width, height);
+	gx_draw_color_quad(width, height, 0xff, 0x00, 0x00);
+	gx_load_bp_reg(0x45000002);
+	gx_submit_cmds("draw");
+
+	fifo_pos = 0;
 	gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
 	gx_copy_efb_to_xfb(xfb_phys, width, height, true);
-	gx_expected_token++;
-	if (!gx_expected_token)
-		gx_expected_token++;
-	gx_load_bp_reg(0x48000000 | gx_expected_token);
-	gx_load_bp_reg(0x47000000 | gx_expected_token);
-	gx_submit_cmds();
+	gx_submit_cmds("copy");
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
 
@@ -1207,7 +1279,7 @@ void gcn_gx_blit_fb_rgb888(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	gx_setup_texture_rgb565(gx_tex_buf, width, height);
 	gx_draw_fullscreen_quad(width, height);
 	gcn_gx_copy_efb_to_xfb(xfb_phys, width, height);
-	gx_submit_cmds();
+	gx_submit_cmds("rgb888");
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb888);
 

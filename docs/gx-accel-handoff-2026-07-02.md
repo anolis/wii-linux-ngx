@@ -2921,6 +2921,34 @@ wait for the token value; only then issue EFB-to-XFB copy-clear plus another
 fresh token. This directly tests whether the old draw-and-copy command stream
 was copying EFB before raster completion.
 
+### Token-fenced direct-colour primitive
+
+This test applies the validated PE token marker as a real boundary. Each RGB565
+refresh now performs two separately submitted command buffers:
+
+1. Configure one direct RGBA8 vertex-colour channel with TEV `GX_PASSCLR`, draw
+   a full-screen red quad, emit `BP 0x45`, append token A, and wait until
+   `PE+0x0e == token A`.
+2. Only after A is observed, copy EFB to XFB with `clear=true`, restoring the
+   known green EFB background, append token B, and wait for token B.
+
+The direct-colour state is intentionally texture-free and includes the two
+independently verified hygiene fixes accumulated after the old direct-colour
+test: destination alpha disabled via BP 0x42 and the real BP 0x45 draw-done
+command. CPU XFB writing remains disabled. Submission diagnostics are labelled
+`draw` and `copy` so each token and FIFO drain can be checked separately.
+
+Visual result is decisive: red means the primitive changed EFB before the
+fenced copy; green means the primitive still produced no visible EFB pixels.
+An initial transient is not significant because the first copy-clear seeds the
+green background for subsequent frames.
+
+Built image SHA-256:
+
+```text
+9cc481b9256df4c913fe175fed91f46337c0299b93c799141403418db287a476
+```
+
 Hardware result: **solid green; finish status still did not latch.** The enable
 bit itself read back correctly as `PE=0002`, proving that the corrected MMIO
 register is writable, but bit 3 remained clear for all four 20 ms windows:
