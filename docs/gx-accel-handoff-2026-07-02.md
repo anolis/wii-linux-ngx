@@ -3112,6 +3112,30 @@ raster and texture swap table 1 in bits 0-3 while leaving alpha input `d` as
 `GX_CA_ZERO`. Exact libogc `GX_PASSCLR` with swap table 0 encodes the alpha
 combiner as `BP C1 = 0x08ffd0`; that is the next single-register test.
 
+### Correct stage-0 alpha and swap-selector encoding
+
+The active direct-colour path now changes only BP C1 from `0x08fff5` to
+`0x08ffd0`. Decoded field by field, the new value is exactly libogc's stage-0
+`GX_PASSCLR` alpha state:
+
+```text
+rswap=GX_TEV_SWAP0, tswap=GX_TEV_SWAP0
+a=b=c=GX_CA_ZERO, d=GX_CA_RASA
+op=ADD, bias=ZERO, scale=1, clamp=true, dest=TEVPREV
+```
+
+The old value put `5` in the low swap-selector nibble, selecting swap table 1
+for both raster and texture colour, while the actual `d` field remained 7
+(`GX_CA_ZERO`). Since the swap selector also controls the raster RGB consumed
+by the C0 `GX_CC_RASC` input, this error can explain the dark-green result even
+though destination alpha is disabled.
+
+Built image SHA-256:
+
+```text
+35043de72bc98415d8d47e6ccd2a279b77d3c5fc08f3e84cb9e61d7bb3a6dd06
+```
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
