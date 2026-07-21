@@ -3760,6 +3760,19 @@ and reprogramming CP between draw and copy lost or invalidated the EFB result
 despite PE finish. Green rules out submission topology and returns the search to
 specific generated-state differences or harmful extra commands.
 
+Hardware result: **solid green.** The fresh log validates one contiguous
+`drawcopy` submission at `WT=0220 pos=544`, expected token, PE-finish IRQ, and
+complete drain to `RDoff=WToff=0x0220`. Splitting draw and copy across CP restarts
+was not the cause.
+
+Return to the proven 564-byte red frame for controlled challenge tests. The
+generated path writes BP 0x30=`width-1` and BP 0x31=`height-1` even though it has
+zero texture generators; the successful frame does not write either register.
+Earlier claims that these SU-size writes were required came from the invalid
+pre-640x480 test era and are not reliable. Prepend only these two generated
+values to the proven frame. A green result directly identifies them as harmful;
+red rules them out without conflating the other generated differences.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
