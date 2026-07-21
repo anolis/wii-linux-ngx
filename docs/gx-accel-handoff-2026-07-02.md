@@ -4610,6 +4610,29 @@ Built image SHA-256:
 cf1e10470ca3293b37719724bf5e34507b533a1fa7994ff35543a1f133e5f54a
 ```
 
+Hardware result: **devtmpfs/getty passed; graphics outcome was mixed across two
+boots of the identical image.** On the successful boot, `devtmpfs: mounted`
+appeared at 3.73 seconds, `auth.log` recorded `ROOT LOGIN on '/dev/tty1'`, and
+the user confirmed that the console was sharp and keyboard input was
+responsive. No new getty `No such file or directory` failures occurred. This
+validates the apparatus fix and the tracked configuration change.
+
+The first boot of the same checksum remained dark green and was reset after
+about 30 seconds without a login test. Its GX diagnostics were nevertheless
+indistinguishable from the successful boot at the current level: both reached
+the first live texture frames, alternated the first four XFB presentations,
+drained every logged FIFO, and continued through worker run 750. The first
+boot's log ends abruptly after run 750; the second ends in an orderly halt
+after the successful login.
+
+Do not apply the planned nearest-magnification change yet. A sharp result with
+the unchanged `0x80000090` texture mode proves blur is not a deterministic
+consequence of that bit. Reboot this exact image several more times and record
+whether each run reaches a visible sharp console or remains on the green seed.
+The identical GX logs for opposite visual outcomes suggest that the next useful
+diagnostic, if the green outcome repeats, is VI framebuffer-register readback
+after each presentation rather than another raster-state change.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
