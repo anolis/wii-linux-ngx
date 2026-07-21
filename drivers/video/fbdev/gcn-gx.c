@@ -1338,17 +1338,8 @@ static const u8 gx_reference_red_frame[] = {
 
 #define GX_REFERENCE_FRAME_SIZE		564
 #define GX_REFERENCE_XFB_ADDR_OFFSET	0x22c
-
-static const u16 gx_reference_duplicate_cmd_offsets[] = {
-	0x0ab, /* second BP 0xc0 TEV color environment */
-	0x0b0, /* second BP 0xc1 TEV alpha environment */
-	0x0b5, /* third BP 0xc1 TEV alpha environment */
-	0x0cd, /* second BP 0x40 Z mode */
-	0x0d2, /* second BP 0x41 blend mode */
-	0x0d7, /* third BP 0x41 blend mode */
-	0x0dc, /* fourth BP 0x41 blend mode */
-	0x0eb, /* second BP 0x43 PE control */
-};
+#define GX_REFERENCE_DRAW_DONE_CMD_OFFSET	0x1e7
+#define GX_REFERENCE_DRAW_DONE_CMD_SIZE		5
 
 static void gx_load_libogc_init_preamble(void)
 {
@@ -1397,7 +1388,6 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 	u32 copy_addr = (xfb_phys >> 5) & 0x00ffffff;
 	u8 *fifo = gx_fifo_buf;
 	u32 start = fifo_pos;
-	u32 i;
 
 	if (WARN_ON_ONCE(width != 640 || height != 480))
 		return;
@@ -1405,9 +1395,9 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 
 	memcpy(fifo + start, gx_reference_red_frame,
 	       sizeof(gx_reference_red_frame));
-	/* Retain the first authoritative write and NOP redundant state rewrites. */
-	for (i = 0; i < ARRAY_SIZE(gx_reference_duplicate_cmd_offsets); i++)
-		memset(fifo + start + gx_reference_duplicate_cmd_offsets[i], 0, 5);
+	/* Test whether the frame's pre-copy PE_DONE command is required. */
+	memset(fifo + start + GX_REFERENCE_DRAW_DONE_CMD_OFFSET, 0,
+	       GX_REFERENCE_DRAW_DONE_CMD_SIZE);
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 0] = copy_addr >> 16;
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 1] = copy_addr >> 8;
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 2] = copy_addr;
@@ -1454,18 +1444,18 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	case GX_DIAG_WAIT_GREEN:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: green seed complete; omitting redundant BP writes\n");
+		pr_info("gcn-gx: green seed complete; omitting pre-copy PE_DONE\n");
 		gx_diag_finish_baseline = finish_count;
 		fifo_pos = 0;
 		gx_load_reference_red_frame(xfb_phys, width, height);
-		gx_submit_cmds("nodup");
+		gx_submit_cmds("nofence");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;
 		break;
 
 	case GX_DIAG_WAIT_DRAW:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: redundant-BP omission PE finish observed\n");
+		pr_info("gcn-gx: no-fence challenge PE finish observed\n");
 		gx_diag_phase = GX_DIAG_DONE;
 		break;
 

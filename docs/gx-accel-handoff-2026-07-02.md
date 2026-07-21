@@ -4063,6 +4063,25 @@ Red proves the internal draw-done marker is not what makes the exact frame
 visible; green identifies the fence itself as required even though the earlier
 generated split-submission test used the same register.
 
+### Omit the pre-copy PE_DONE command
+
+This build restores the exact proven frame except for bytes `0x1e7..0x1eb`,
+where `BP 0x45 = 0x000002` is replaced with five NOPs. The following 32 NOP
+bytes remain in place, as do all draw state, vertex data, post-draw copy state,
+the copy execute command, and the submit helper's final token/finish marker.
+The prior duplicate-state omissions are fully restored.
+
+Built image SHA-256:
+
+```text
+fe821ded8ba86745a94b5c458a2e1ec5b5e9ca954ceb7ffe7941c171995ff1ee
+```
+
+Validity requires `nofence WT=0240 pos=576`, expected final token and finish
+IRQ, and complete drain. Red proves the frame's internal BP 0x45 command is not
+required to make its primitive visible before the copy. Green makes that fence
+the distinguishing mechanism despite the earlier generated fence test.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
