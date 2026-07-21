@@ -3339,6 +3339,33 @@ The next hardware test should emit the capture's complete setup and red draw in
 the same order, then use the driver's physical XFB address for the final copy.
 This is a bounded replay test, not another individual-register experiment.
 
+### Replay the validated 564-byte libogc frame on hardware
+
+The active diagnostic retains its two independent green copy controls, then
+copies the validated full-state frame into the MEM1 command FIFO verbatim. A
+build-time assertion fixes its length at 564 bytes. A host-side structured
+comparison confirmed that every embedded byte equals the independently replayed
+DFF frame.
+
+Only the three-byte payload of BP 0x4b at frame offset `0x22c` is replaced with
+the Wii driver's physical XFB address. The captured 640x480 viewport, sample
+pattern, scissor, complete public draw state, CP/XF matrix indices, red quad,
+BP 0x45 fence, 32-byte flush, and final copy-clear command retain their original
+order and encoding. The separate old draw/readout submissions are removed from
+this test so they cannot overwrite the replay result.
+
+Built image SHA-256:
+
+```text
+178dd40fbc5e55baa4f84be5ef1ed9462ae67fd467e979c3ab03b7247ae91b05
+```
+
+Expected result: red proves the missing behavior is represented somewhere in
+the ordered libogc public command sequence and permits a command-range bisect.
+Green means even the captured sequence cannot draw under Linux's inherited GX
+environment, shifting the investigation to initialization outside the frame:
+GX/CP/PE reset, one-time `GX_Init()` commands, or FIFO execution context.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
