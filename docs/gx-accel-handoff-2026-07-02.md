@@ -3232,6 +3232,35 @@ state is now the smallest evidence-based next hardware test. Do not resume the
 older unbounded register search; first make the active direct-color diagnostic
 match the reference's BP 0x40 and 0x41 values exactly.
 
+### Test exact libogc draw-time PE state
+
+The active direct-color diagnostic now changes only two BP payloads to match
+the validated red libogc capture byte for byte:
+
+```text
+BP 40: 0x000000 -> 0x00000e
+BP 41: 0x000018 -> 0x00311c
+```
+
+The first value retains disabled Z testing and Z writes but selects the
+`GX_ALWAYS` compare function. The second retains disabled blending and logic
+operations with color and alpha writes enabled, while adding libogc's dither,
+source-ONE, destination-ZERO, and logic-COPY fields. BP 0x43 was already the
+matching `0x000040`. No CP, XF, geometry, TEV, copy, FIFO, or asynchronous
+PE-finish behavior changed.
+
+Built image SHA-256:
+
+```text
+16f68552ab170373702e8116d0f139dd187bab29a127e11383e3793ebbc6d0c5
+```
+
+Expected result: solid red means the raster backend requires one or more of
+these nominally inactive PE fields to carry libogc's canonical values. Solid
+green means the remaining cause is in state absent from the driver's setup but
+present in the DFF initial snapshot, rather than the already matched frame
+payload. Any nonuniform result must be confirmed visually before attribution.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`

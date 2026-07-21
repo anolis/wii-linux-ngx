@@ -812,9 +812,9 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	u32 xo = 0x156;
 	u32 yo = 0x156;
 
-	/* Direct RGBA8 vertex colour, no texture, no blending or depth test. */
-	gx_load_bp_reg(0x40000000);
-	gx_load_bp_reg(0x41000018);
+	/* Match the validated libogc capture's exact draw-time PE state. */
+	gx_load_bp_reg(0x4000000E);
+	gx_load_bp_reg(0x4100311C);
 	gx_load_bp_reg(0x42000000);
 	gx_load_bp_reg(0x43000040);
 	gx_load_bp_reg(0x44000003);
