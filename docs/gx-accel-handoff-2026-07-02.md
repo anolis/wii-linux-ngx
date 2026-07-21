@@ -696,14 +696,25 @@ to host, read `/media/anolis/WII-LINUX-NGX1/dmesg.txt`.
 ## Build and deploy
 
 ```sh
-make ARCH=powerpc CROSS_COMPILE=powerpc-linux-gnu- -j$(nproc)
-cp arch/powerpc/boot/dtbImage.wii /media/anolis/BOOTWII/gumboot/zImage.ngx
+CCACHE_TEMPDIR=/tmp CCACHE_DIR=/tmp/wii-ccache \
+  make ARCH=powerpc CROSS_COMPILE=powerpc-linux-gnu- zImage -j$(nproc)
+mount /media/anolis/BOOTWII
+cp arch/powerpc/boot/zImage /media/anolis/BOOTWII/gumboot/zImage.ngx
 sync
+sha256sum arch/powerpc/boot/zImage \
+  /media/anolis/BOOTWII/gumboot/zImage.ngx
+umount /media/anolis/BOOTWII
 ```
 
-BOOTWII (FAT, ~40 MB) and WII-LINUX-NGX1 (ext2, ~338 MB) are separate partitions on
-the same SD card (`/dev/sdd` on the host, automounts to `/media/anolis/BOOTWII` and
-`/media/anolis/WII-LINUX-NGX1`).
+Do not use `pkexec`, mount the device node directly, or use the old temporary
+`/tmp/bootwii-mnt` path.  The host already has an `/etc/fstab` entry for UUID
+`CFC6-4C2F` with `user,rw,uid=1000,gid=1000`, so the commands above mount,
+write, and unmount as user `anolis` without a password.  This procedure was
+write-tested successfully on 2026-07-20.
+
+BOOTWII (FAT, ~40 MB) and WII-LINUX-NGX1 (ext3, ~359 MB) are separate
+partitions on the same SD card.  Device letters are not stable; identify them
+by filesystem label rather than assuming `/dev/sdc` or `/dev/sdd`.
 
 ## Key files
 
