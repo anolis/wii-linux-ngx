@@ -4208,6 +4208,40 @@ texgen count; then CP/XF matrix-index A. Red identifies late ordered state
 commit as the missing mechanism. Green rules out this complete 95-byte tail and
 leaves earlier raster-state ordering as the next target.
 
+### Re-emit the libogc-ordered vertex-consumer tail
+
+The active path restores the previously green generated-only `drawcopy`
+topology: generated setup, direct RGBA8 red quad, BP 0x45, 32 NOPs, green copy
+clear state, and clear-enabled EFB-to-XFB copy in one submission. The only added
+commands are this 95-byte tail immediately before the primitive:
+
+```text
+BP 0x00 = 0x000010
+CP 0x50 = 0x00002200; CP 0x60 = 0
+XF 0x1008 = 1
+CP 0x70 = 0x40016008; CP 0x80 = 0x80000000; CP 0x90 = 0
+XF 0x1009 = 1; XF 0x100e = 0x401; XF 0x1010 = 0x401
+XF 0x103f = 0
+CP 0x30 = 0; XF 0x1018 = 0
+```
+
+This reproduces the proven frame's deferred vertex-consumer ordering using the
+generated helper's already-challenged matrix-index A value. Matrix-index B is
+not added because its complete omission has already passed a red controlled
+challenge. The byte count is 608 before the submit token, 618 afterward, and
+640 after DMA alignment.
+
+Built image SHA-256:
+
+```text
+5bb0ca116973141900bab2d6959b739a7aed7f849e27efdbbd1f6019f21da482
+```
+
+Validity requires `tail WT=0280 pos=640`, expected token and third finish IRQ,
+and complete drain. Red identifies late ordered vertex-state emission as the
+missing generated-path mechanism and requires reducing the tail. Green rules
+out the entire tail and shifts ordering work to earlier raster/XF state.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
