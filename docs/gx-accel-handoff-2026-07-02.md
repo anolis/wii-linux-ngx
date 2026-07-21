@@ -3962,6 +3962,17 @@ complete drain. Red rules out these precision differences as expected. Green
 would show that even the one-ULP inward edge shift unexpectedly suppresses the
 primitive and would make rounding in `f32_div_u16()` the immediate fix.
 
+Hardware result: **red.** The fresh log validates 640x480 mode,
+`projulp WT=0240 pos=576`, token `0x0003`, PE-finish IRQ, and complete drain to
+`RDoff=WToff=0x0240`. The generated projection coefficients remain a real
+rounding defect to fix eventually, but they do not suppress primitive output
+and are ruled out as the current blocker.
+
+Next audit state inherited by the proven frame against state explicitly written
+by the generated path, then challenge one omitted draw-relevant group. Avoid
+copy-only BP registers (copy clear, filter, and scale) unless the audit finds a
+specific route by which they can gate rasterization.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
