@@ -828,6 +828,12 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	/* GX_SetScissorBoxOffset(0, 0): hardware stores (axis + 342) >> 1. */
 	gx_load_bp_reg(0x5902ACAB);
 
+	/* GX_SetCopyFilter(aa=false): center all twelve raster samples. */
+	gx_load_bp_reg(0x01666666);
+	gx_load_bp_reg(0x02666666);
+	gx_load_bp_reg(0x03666666);
+	gx_load_bp_reg(0x04666666);
+
 	/* TEV stage 0 = rasterized vertex colour/alpha (GX_PASSCLR). */
 	gx_load_bp_reg(0xC008FFFA);
 	gx_load_bp_reg(0xC108FFD0);

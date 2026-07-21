@@ -3699,6 +3699,33 @@ registers; the generated path writes none of them and inherits Mini's unknown
 values. Add exactly those four writes before the generated draw. Keep all other
 state and split draw/copy sequencing unchanged.
 
+### Add libogc's non-AA sample-position group
+
+This build adds exactly four BP writes to `gx_setup_vertex_color_state()`:
+
+```text
+BP 0x01 = 0x666666
+BP 0x02 = 0x666666
+BP 0x03 = 0x666666
+BP 0x04 = 0x666666
+```
+
+These are the values emitted by the proven frame's
+`GX_SetCopyFilter(aa=false, ...)` call. The corrected scissor offset and every
+other generated draw/copy command remain unchanged.
+
+Built image SHA-256:
+
+```text
+d6af40f4dfc44470ce2ddc070cceadf613f7b114733bfa5beab540d283f237ed
+```
+
+Validity requires generated draw `WT=01c0 pos=448`, its token/finish and complete
+drain, followed by copy `WT=0060 pos=96` and complete drain. Red identifies the
+missing sample-position initialization as the second generated-path blocker.
+Green rules it out and leaves TEV KSEL/swap preservation or an actively harmful
+extra generated command as the next comparison target.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
