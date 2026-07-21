@@ -4007,6 +4007,19 @@ complete drain. Red rules out all six omitted setup commands together. Green
 shows at least one is unexpectedly required before primitive rasterization and
 the group must be bisected.
 
+Hardware result: **red.** The fresh log validates 640x480 mode,
+`nomisc WT=0240 pos=576`, token `0x0003`, PE-finish IRQ, and complete drain to
+`RDoff=WToff=0x0240`. BP 0x4e, 0x53, 0x54, 0x22, and both BP 0x0f writes are
+all unnecessary for the working direct-color primitive and are ruled out
+together.
+
+Next remove only redundant draw-state rewrites from the proven frame: the
+second TEV color-environment write, the second and third TEV alpha-environment
+writes, and repeated BP 0x40/0x41/0x43 values. Retain the first authoritative
+write of every register and retain the pre-copy BP 0x45 fence. Red proves the
+duplicates do not provide an undocumented state-commit effect; green requires
+bisecting them.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
