@@ -3185,6 +3185,53 @@ triangle with the official devkitPPC container, capture one rendered frame in
 Dolphin's FIFO logger, decode it using Dolphin's own register definitions, and
 compare the resulting CP/BP/XF stream against this driver's emitted bytes.
 
+### Establish a known-good libogc FIFO reference
+
+Added `tools/gx-fifo-reference`, a minimal libogc program which intentionally
+matches the active Linux diagnostic: direct XY/F32 positions, direct RGBA8
+colors, one raster color channel, no texture generators, one `GX_PASSCLR` TEV
+stage, an orthographic 640x480 projection, and a full-screen red quad over a
+green copy-clear background.
+
+The program was built with the official `devkitpro/devkitppc:latest` container
+and run visibly in Dolphin. It rendered solid red. Dolphin's FIFO recorder then
+captured one complete frame, reporting 204 FIFO bytes, zero memory-update bytes,
+and one frame. Reopening that `.dff` directly in Dolphin's FIFO Player again
+rendered the red EFB, providing an independently replayed positive control.
+
+Capture SHA-256:
+
+```text
+1f56e7adce3cfd9831e027b5ce5c659698b2daf6dc5cbe5ef7286cad74a057f2
+```
+
+The checked-in `decode_dff.py` follows Dolphin's packed `FileHeader` and
+`FileFrameInfo` definitions and decodes both the complete initial BP/CP/XF
+snapshot and every recorded FIFO command. Its golden output is
+`reference-red-quad.txt`. This distinction matters because the 204-byte frame
+contains only values changed after recording began; state written once by
+`GX_Init()` or `configure_gx()` exists only in the initial arrays.
+
+The first differential is highly constraining. The reference and Linux driver
+match on the primitive opcode/count/payload, CP VCD/VAT, identity position
+matrix, XF viewport and projection, channel count/control, TEV C0/C1, stage-0
+TEV routing, PE pixel format, and draw-done command. The reference's draw-time
+stream starts with:
+
+```text
+BP 40 = 0x00000e  (Z disabled, compare function ALWAYS, update disabled)
+BP 41 = 0x00311c  (blend/logic disabled, dither and color/alpha writes enabled,
+                   source ONE, destination ZERO, logic COPY)
+BP 43 = 0x000040  (RGB8/Z24, Z compare before texture)
+```
+
+The driver currently uses `BP 40 = 0x000000`, `BP 41 = 0x000018`, and the
+matching `BP 43 = 0x000040`. Although disabled blend and depth modes make some
+of the differing fields look nominally irrelevant, the exact known-good PE
+state is now the smallest evidence-based next hardware test. Do not resume the
+older unbounded register search; first make the active direct-color diagnostic
+match the reference's BP 0x40 and 0x41 values exactly.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
