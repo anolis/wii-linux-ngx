@@ -94,6 +94,9 @@ struct gx_rgb565_work {
 static struct gx_rgb565_work gx_rgb565_work;
 static DEFINE_SPINLOCK(gx_rgb565_work_lock);
 static u32 gx_rgb565_work_runs;
+static u32 gx_rgb565_ready_xfb;
+static u32 gx_rgb565_present_count;
+static bool gx_rgb565_work_busy;
 static bool gx_rgb565_boot_deferred;
 
 static inline u16 pe_read(int reg)
@@ -1460,10 +1463,11 @@ static void gx_submit_live_rgb565(const void *vfb, u32 xfb_phys,
  * and return to the worker. A later worker invocation copies EFB only after
  * the independent PE-finish handler has observed draw completion.
  */
-static void gx_process_rgb565(const void *vfb, u32 xfb_phys,
+static bool gx_process_rgb565(const void *vfb, u32 xfb_phys,
 			      u16 width, u16 height)
 {
 	u32 finish_count;
+	bool submitted = false;
 
 	finish_count = ACCESS_ONCE(gx_pe_finish_count);
 
@@ -1475,6 +1479,7 @@ static void gx_process_rgb565(const void *vfb, u32 xfb_phys,
 		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
 		gx_submit_cmds("seed");
 		gx_diag_phase = GX_DIAG_WAIT_SEED;
+		submitted = true;
 		break;
 
 	case GX_DIAG_WAIT_SEED:
@@ -1488,6 +1493,7 @@ static void gx_process_rgb565(const void *vfb, u32 xfb_phys,
 		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
 		gx_submit_cmds("green");
 		gx_diag_phase = GX_DIAG_WAIT_GREEN;
+		submitted = true;
 		break;
 
 	case GX_DIAG_WAIT_GREEN:
@@ -1497,6 +1503,7 @@ static void gx_process_rgb565(const void *vfb, u32 xfb_phys,
 		gx_diag_finish_baseline = finish_count;
 		gx_submit_live_rgb565(vfb, xfb_phys, width, height, "live0");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;
+		submitted = true;
 		break;
 
 	case GX_DIAG_WAIT_DRAW:
@@ -1508,8 +1515,11 @@ static void gx_process_rgb565(const void *vfb, u32 xfb_phys,
 
 	case GX_DIAG_DONE:
 		gx_submit_live_rgb565(vfb, xfb_phys, width, height, "live");
+		submitted = true;
 		break;
 	}
+
+	return submitted;
 }
 
 static void gx_rgb565_workfn(struct work_struct *work)
@@ -1519,6 +1529,7 @@ static void gx_rgb565_workfn(struct work_struct *work)
 	u16 width, height;
 	unsigned long flags;
 	u32 run;
+	bool submitted;
 
 	(void)work;
 	spin_lock_irqsave(&gx_rgb565_work_lock, flags);
@@ -1528,14 +1539,48 @@ static void gx_rgb565_workfn(struct work_struct *work)
 	height = gx_rgb565_work.height;
 	spin_unlock_irqrestore(&gx_rgb565_work_lock, flags);
 
-	if (!vfb || !width || !height || !gx_accel_ready)
+	if (!vfb || !width || !height || !gx_accel_ready) {
+		spin_lock_irqsave(&gx_rgb565_work_lock, flags);
+		gx_rgb565_work_busy = false;
+		spin_unlock_irqrestore(&gx_rgb565_work_lock, flags);
 		return;
+	}
 
 	run = ++gx_rgb565_work_runs;
-	if (run == 1 || run == 60 || run == 300)
+	if (run == 1 || run == 60 || run == 300 || run == 450 ||
+	    run == 600 || run == 750)
 		pr_info("gcn-gx: RGB565 worker run=%u\n", run);
-	gx_process_rgb565(vfb, xfb_phys, width, height);
+	submitted = gx_process_rgb565(vfb, xfb_phys, width, height);
+
+	spin_lock_irqsave(&gx_rgb565_work_lock, flags);
+	if (submitted)
+		gx_rgb565_ready_xfb = xfb_phys;
+	else
+		gx_rgb565_work_busy = false;
+	spin_unlock_irqrestore(&gx_rgb565_work_lock, flags);
 }
+
+bool gcn_gx_take_completed_rgb565(u32 *xfb_phys)
+{
+	unsigned long flags;
+	bool ready = false;
+
+	spin_lock_irqsave(&gx_rgb565_work_lock, flags);
+	if (gx_rgb565_ready_xfb) {
+		*xfb_phys = gx_rgb565_ready_xfb;
+		gx_rgb565_ready_xfb = 0;
+		gx_rgb565_work_busy = false;
+		gx_rgb565_present_count++;
+		ready = true;
+	}
+	spin_unlock_irqrestore(&gx_rgb565_work_lock, flags);
+
+	if (ready && gx_rgb565_present_count <= 4)
+		pr_info("gcn-gx: present %u xfb=0x%08x\n",
+			gx_rgb565_present_count, *xfb_phys);
+	return ready;
+}
+EXPORT_SYMBOL_GPL(gcn_gx_take_completed_rgb565);
 
 void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
@@ -1555,14 +1600,23 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	}
 
 	spin_lock_irqsave(&gx_rgb565_work_lock, flags);
+	if (gx_rgb565_work_busy) {
+		spin_unlock_irqrestore(&gx_rgb565_work_lock, flags);
+		return;
+	}
 	gx_rgb565_work.vfb = vfb;
 	gx_rgb565_work.xfb_phys = xfb_phys;
 	gx_rgb565_work.width = width;
 	gx_rgb565_work.height = height;
+	gx_rgb565_work_busy = true;
 	spin_unlock_irqrestore(&gx_rgb565_work_lock, flags);
 
-	/* One running and one pending frame are sufficient; newer IRQs coalesce. */
-	schedule_work(&gx_rgb565_work.work);
+	if (!schedule_work(&gx_rgb565_work.work)) {
+		spin_lock_irqsave(&gx_rgb565_work_lock, flags);
+		gx_rgb565_work_busy = false;
+		spin_unlock_irqrestore(&gx_rgb565_work_lock, flags);
+		pr_warn_once("gcn-gx: failed to queue idle RGB565 work\n");
+	}
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
 
@@ -1668,6 +1722,9 @@ int gcn_gx_init(void)
 	INIT_WORK(&gx_rgb565_work.work, gx_rgb565_workfn);
 	gx_rgb565_work.vfb = NULL;
 	gx_rgb565_work_runs = 0;
+	gx_rgb565_ready_xfb = 0;
+	gx_rgb565_present_count = 0;
+	gx_rgb565_work_busy = false;
 	gx_rgb565_boot_deferred = false;
 	gx_diag_phase = GX_DIAG_SEED;
 	gx_diag_finish_baseline = 0;

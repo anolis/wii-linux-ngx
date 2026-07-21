@@ -1453,6 +1453,35 @@ static void vi_dispatch_vtrace(struct vi_ctl *ctl)
 	wake_up_interruptible(&ctl->vtrace_waitq);
 }
 
+static u32 vi_gx_present_rgb565(struct vi_ctl *ctl)
+{
+	unsigned long flags;
+	u32 completed_xfb;
+	int page;
+
+	if (gcn_gx_take_completed_rgb565(&completed_xfb)) {
+		spin_lock_irqsave(&ctl->lock, flags);
+		for (page = 0; page < 2; page++) {
+			if ((u32)ctl->page_address[page] != completed_xfb)
+				continue;
+			ctl->visible_page = page;
+			vi_set_framebuffer(ctl, completed_xfb);
+			break;
+		}
+		spin_unlock_irqrestore(&ctl->lock, flags);
+		if (page == 2)
+			drv_printk(KERN_WARNING,
+				   "GX completed unknown XFB 0x%08x\n",
+				   completed_xfb);
+	}
+
+	spin_lock_irqsave(&ctl->lock, flags);
+	page = ctl->visible_page ^ 1;
+	completed_xfb = (u32)ctl->page_address[page];
+	spin_unlock_irqrestore(&ctl->lock, flags);
+	return completed_xfb;
+}
+
 static irqreturn_t vi_irq_handler(int irq, void *dev)
 {
 	struct fb_info *info = dev_get_drvdata((struct device *)dev);
@@ -1478,7 +1507,7 @@ static irqreturn_t vi_irq_handler(int irq, void *dev)
 				case V4L2_PIX_FMT_RGB565:
 					if (gx_accel_ready)
 						gcn_gx_blit_fb_rgb565(vfb_mem,
-							(u32)gx_fb_start,
+							vi_gx_present_rgb565(ctl),
 							info->var.xres,
 							info->var.yres);
 					else

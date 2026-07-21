@@ -4530,6 +4530,37 @@ Do not use it as a graphics acceptance criterion. The severe blur remains a
 real GX presentation defect and still motivates hidden-XFB rendering plus a
 vertical-retrace flip.
 
+### Present completed frames through the hidden XFB at vertical retrace
+
+The active graphics test changes the worker/VI contract without changing the
+validated RGB565 GX command stream. `gcnfb` now passes its non-visible physical
+XFB page to the worker. After the PE token and FIFO drain prove the copy has
+completed, the worker publishes that page but does not immediately reuse it.
+At the next VI DI1 interrupt, `gcnfb` switches the VI framebuffer registers to
+the completed page during vertical retrace and queues the next render against
+the opposite page.
+
+An explicit busy/ready state prevents a queued or running worker from
+overwriting either the page currently scanned by VI or a completed page waiting
+to be presented. The first four flips log their alternating physical addresses.
+Worker milestones 450, 600, and 750 extend diagnostics through the former
+18-28 second ambiguity, although normal `/sbin/init` is restored by commit
+`bb9223f340cd` and the diagnostic-script pause is no longer an acceptance
+criterion.
+
+Built image SHA-256:
+
+```text
+cf7131417ba2e6d2042ad02bccd513c758b151ce2a77f0a953cb81582216be6d
+```
+
+Validity requires alternating `present` addresses matching `gcnfb`'s two page
+addresses, continued `WT=02a0` token/drain success, and a normally booted getty.
+The visual success criterion is a sharp, stable, correctly oriented console
+with a responsive blinking cursor and keyboard input. Any repeated columns,
+blur, stale half-frame, page alternation failure, or new FIFO warning is a real
+graphics failure.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`

@@ -117,6 +117,7 @@ extern bool gx_accel_ready;
 int  gcn_gx_init(void);
 void gcn_gx_exit(void);
 void gcn_gx_copy_efb_to_xfb(u32 xfb_phys, u16 width, u16 height);
+bool gcn_gx_take_completed_rgb565(u32 *xfb_phys);
 void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height);
 void gcn_gx_blit_fb_rgb888(const void *vfb, u32 xfb_phys, u16 width, u16 height);
 
