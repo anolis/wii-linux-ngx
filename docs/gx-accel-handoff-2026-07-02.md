@@ -3726,6 +3726,19 @@ missing sample-position initialization as the second generated-path blocker.
 Green rules it out and leaves TEV KSEL/swap preservation or an actively harmful
 extra generated command as the next comparison target.
 
+Hardware result: **solid green.** The fresh log validates draw
+`WT=01c0 pos=448`, expected token, PE-finish IRQ, and complete drain, followed by
+copy `WT=0060 pos=96`, expected token, PE-finish IRQ, and complete drain. The
+sample-position group is accepted but does not restore generated raster output.
+
+Before changing another state register, test the remaining structural difference
+from the successful capture: that frame keeps draw, BP 0x45, a 32-byte NOP gap,
+and EFB copy in one contiguous FIFO submission. The generated diagnostic splits
+draw and copy across separate CP disable/reprogram/enable cycles despite waiting
+for PE finish. Keep all generated state unchanged and combine those operations.
+This distinguishes a CP/FIFO submission-boundary effect from another state-value
+mismatch.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
