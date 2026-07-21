@@ -3883,6 +3883,18 @@ complete drain. Red rules out the zero matrix indices and extra XF 0x0078 matrix
 together. Green means this group suppresses the proven primitive and must be
 split into separate challenges.
 
+Hardware result: **red.** The fresh log validates 640x480 mode,
+`matrix WT=0280 pos=640`, token `0x0003`, PE-finish IRQ, and complete drain to
+`RDoff=WToff=0x0280`. The generated zero matrix-index A values and extra XF
+0x0078 identity texture matrix are harmless for this direct-color draw and are
+ruled out together.
+
+Next perform a fresh byte-level comparison between the generated direct-color
+setup and the proven frame, then challenge the smallest remaining coherent
+state group. Do not split this now-ruled-out matrix group merely because it was
+grouped: a red positive-control result proves every change in the group is
+compatible with the working frame.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
