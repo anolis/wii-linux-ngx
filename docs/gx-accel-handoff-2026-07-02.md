@@ -3586,6 +3586,28 @@ public frame contains every command required for rasterization. Green proves at
 least one command in the omitted 206-byte one-time preamble is required and
 makes that range the next bisect target.
 
+Hardware result: **red again**, with a thin green sliver at the left edge that
+was also present in the successful preamble build. The fresh log validates the
+test exactly:
+
+```text
+gcn-vifb: mode is 640x480x16
+gcn-gx: f2 replay pre:  ... WT=0240 pos=576
+gcn-gx: f2 replay PE ... token=0003 expected=0003
+gcn-gx: f2 replay post: ... RDoff=0240 WToff=0240
+gcn-gx: libogc replay PE finish observed
+```
+
+The one-time 206-byte libogc preamble is conclusively unnecessary for primitive
+rasterization. All required state is contained in the decoded 564-byte public
+frame. Treat the narrow green edge as a later viewport/scissor coverage issue;
+it does not affect the red primitive positive control.
+
+The next work should compare the working capture's decoded command groups with
+the driver's generated direct-color setup, then isolate differences inside the
+564-byte frame. Do not return to PI reset, undocumented register probing, or the
+one-time preamble unless new evidence specifically requires it.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
