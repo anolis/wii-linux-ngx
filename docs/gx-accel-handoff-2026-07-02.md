@@ -3973,6 +3973,40 @@ by the generated path, then challenge one omitted draw-relevant group. Avoid
 copy-only BP registers (copy clear, filter, and scale) unless the audit finds a
 specific route by which they can gate rasterization.
 
+### Omit miscellaneous frame-only BP setup
+
+The on-hardware exact replay does not restore the DFF initial snapshot, so XF
+state present only in that snapshot cannot distinguish it from the generated
+path: both inherit the same Mini/green-seed state. The fresh ordered-stream
+audit instead found six explicit pre-draw commands in the proven frame that
+neither the generated setup nor the green seed emits. This build replaces each
+complete five-byte BP command with NOPs in place:
+
+```text
+frame 0x05b: BP 0x4e = 0x000100 (display-copy Y scale)
+frame 0x07e: BP 0x53 = 0x30a208 (display-copy filter)
+frame 0x083: BP 0x54 = 0x00820a (display-copy filter)
+frame 0x088: BP 0x22 = 0x000606 (line/point size)
+frame 0x08d: BP 0x0f = 0x000000
+frame 0x097: BP 0x0f = 0x000000
+```
+
+The proven frame's copy-clear values are retained because the generated path
+inherits the same green values from the seed. The post-draw EFB-to-XFB copy is
+also unchanged. Projection words are restored to the exact proven values from
+the previous test, and total stream length remains unchanged.
+
+Built image SHA-256:
+
+```text
+3a160c913de7a95dd916d9aff0b08029d9a852305b89225e18632b97af0fff89
+```
+
+Validity requires `nomisc WT=0240 pos=576`, expected token and finish IRQ, and
+complete drain. Red rules out all six omitted setup commands together. Green
+shows at least one is unexpectedly required before primitive rasterization and
+the group must be bisected.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`

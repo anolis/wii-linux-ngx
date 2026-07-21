@@ -1338,8 +1338,15 @@ static const u8 gx_reference_red_frame[] = {
 
 #define GX_REFERENCE_FRAME_SIZE		564
 #define GX_REFERENCE_XFB_ADDR_OFFSET	0x22c
-#define GX_REFERENCE_PROJECTION_A_OFFSET	0x12a
-#define GX_REFERENCE_PROJECTION_C_OFFSET	0x132
+
+static const u16 gx_reference_misc_cmd_offsets[] = {
+	0x05b, /* BP 0x4e: display-copy Y scale */
+	0x07e, /* BP 0x53: display-copy filter */
+	0x083, /* BP 0x54: display-copy filter */
+	0x088, /* BP 0x22: line/point size */
+	0x08d, /* BP 0x0f */
+	0x097, /* BP 0x0f */
+};
 
 static void gx_load_libogc_init_preamble(void)
 {
@@ -1388,6 +1395,7 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 	u32 copy_addr = (xfb_phys >> 5) & 0x00ffffff;
 	u8 *fifo = gx_fifo_buf;
 	u32 start = fifo_pos;
+	u32 i;
 
 	if (WARN_ON_ONCE(width != 640 || height != 480))
 		return;
@@ -1395,15 +1403,9 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 
 	memcpy(fifo + start, gx_reference_red_frame,
 	       sizeof(gx_reference_red_frame));
-	/* Challenge with f32_div_u16()'s one-ULP-truncated projection values. */
-	fifo[start + GX_REFERENCE_PROJECTION_A_OFFSET + 0] = 0x3b;
-	fifo[start + GX_REFERENCE_PROJECTION_A_OFFSET + 1] = 0x4c;
-	fifo[start + GX_REFERENCE_PROJECTION_A_OFFSET + 2] = 0xcc;
-	fifo[start + GX_REFERENCE_PROJECTION_A_OFFSET + 3] = 0xcc;
-	fifo[start + GX_REFERENCE_PROJECTION_C_OFFSET + 0] = 0xbb;
-	fifo[start + GX_REFERENCE_PROJECTION_C_OFFSET + 1] = 0x88;
-	fifo[start + GX_REFERENCE_PROJECTION_C_OFFSET + 2] = 0x88;
-	fifo[start + GX_REFERENCE_PROJECTION_C_OFFSET + 3] = 0x88;
+	/* Omit pre-draw state that neither the generated path nor seed writes. */
+	for (i = 0; i < ARRAY_SIZE(gx_reference_misc_cmd_offsets); i++)
+		memset(fifo + start + gx_reference_misc_cmd_offsets[i], 0, 5);
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 0] = copy_addr >> 16;
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 1] = copy_addr >> 8;
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 2] = copy_addr;
@@ -1450,18 +1452,18 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	case GX_DIAG_WAIT_GREEN:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: green seed complete; challenging projection ULPs\n");
+		pr_info("gcn-gx: green seed complete; omitting miscellaneous BP state\n");
 		gx_diag_finish_baseline = finish_count;
 		fifo_pos = 0;
 		gx_load_reference_red_frame(xfb_phys, width, height);
-		gx_submit_cmds("projulp");
+		gx_submit_cmds("nomisc");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;
 		break;
 
 	case GX_DIAG_WAIT_DRAW:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: projection-ULP challenge PE finish observed\n");
+		pr_info("gcn-gx: miscellaneous-BP omission PE finish observed\n");
 		gx_diag_phase = GX_DIAG_DONE;
 		break;
 
