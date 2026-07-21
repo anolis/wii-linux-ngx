@@ -3173,6 +3173,18 @@ Built image SHA-256:
 ee5ae16a80759d712024814f9f5304008e2c3f779c5938d6fb9041b34f63b075
 ```
 
+Hardware result: **bright green again.** The returned log confirms the exact
+image completed both green controls, the red draw's independent PE-finish IRQ,
+and the delayed readout copy with all FIFOs drained. Explicit identity
+swizzling did not expose red output.
+
+This rules out inherited TEV swap-table state as the remaining explanation for
+the green frame. Pause register-by-register hardware tests here. The next work
+is an isolated FIFO differential apparatus: build devkitPro's known-working GX
+triangle with the official devkitPPC container, capture one rendered frame in
+Dolphin's FIFO logger, decode it using Dolphin's own register definitions, and
+compare the resulting CP/BP/XF stream against this driver's emitted bytes.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
