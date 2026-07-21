@@ -35,6 +35,8 @@
 #include <linux/io.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
+#include <linux/interrupt.h>
+#include <linux/irqdomain.h>
 #include <linux/string.h>
 #include <asm/cacheflush.h>
 #include <asm/div64.h>
@@ -64,6 +66,21 @@ static void *gx_tex_buf;
 static bool gx_log_next_submit;
 static u32 gx_current_frame;
 static u16 gx_expected_token;
+static unsigned int gx_pe_finish_irq;
+static u32 gx_pe_finish_count;
+
+#define GX_PE_FINISH_HWIRQ	10
+
+enum gx_finish_diag_phase {
+	GX_DIAG_SEED,
+	GX_DIAG_WAIT_SEED,
+	GX_DIAG_WAIT_GREEN,
+	GX_DIAG_WAIT_DRAW,
+	GX_DIAG_DONE,
+};
+
+static enum gx_finish_diag_phase gx_diag_phase;
+static u32 gx_diag_finish_baseline;
 
 static inline u16 pe_read(int reg)
 {
@@ -73,6 +90,23 @@ static inline u16 pe_read(int reg)
 static inline void pe_write(int reg, u16 val)
 {
 	out_be16(pe_regs + reg, val);
+}
+
+static irqreturn_t gx_pe_finish_handler(int irq, void *data)
+{
+	static unsigned int log_count;
+	u16 status = pe_read(PE_REG_INTR_STATUS);
+	u32 count;
+
+	/* PE status bits are write-one-to-clear; preserve both enable bits. */
+	pe_write(PE_REG_INTR_STATUS, (status & 0x0003) | PE_FINISH_BIT);
+	count = ACCESS_ONCE(gx_pe_finish_count) + 1;
+	ACCESS_ONCE(gx_pe_finish_count) = count;
+	if (log_count++ < 4)
+		pr_info("gcn-gx: PE finish IRQ count=%u status=%04x\n",
+			count, status);
+
+	return IRQ_HANDLED;
 }
 
 /* Set to true after successful gcn_gx_init(); guards vsync path */
@@ -1238,26 +1272,69 @@ static void gx_submit_cmds(const char *phase)
 }
 
 /*
- * gcn_gx_blit_fb_rgb565 - split direct-colour primitive diagnostic.
+ * gcn_gx_blit_fb_rgb565 - asynchronous PE-finish primitive diagnostic.
  *
- * This deliberately ignores vfb until primitive rasterization is known to
- * work. Draw a red quad and wait for a PE token before copying EFB to XFB;
- * copy-clear restores green as the failure/readout background.
+ * Validate the real PE-finish IRQ with known copies, then submit a red draw
+ * and return from VI IRQ context. A later VI callback copies EFB only after
+ * the independent PE-finish handler has observed draw completion.
  */
 void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
+	u32 finish_count;
+
 	(void)vfb;
+	finish_count = ACCESS_ONCE(gx_pe_finish_count);
 
-	fifo_pos = 0;
-	gx_setup_vertex_color_state(width, height);
-	gx_draw_color_quad(width, height, 0xff, 0x00, 0x00);
-	gx_load_bp_reg(0x45000002);
-	gx_submit_cmds("draw");
+	switch (gx_diag_phase) {
+	case GX_DIAG_SEED:
+		gx_diag_finish_baseline = finish_count;
+		fifo_pos = 0;
+		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
+		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
+		gx_submit_cmds("seed");
+		gx_diag_phase = GX_DIAG_WAIT_SEED;
+		break;
 
-	fifo_pos = 0;
-	gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
-	gx_copy_efb_to_xfb(xfb_phys, width, height, true);
-	gx_submit_cmds("copy");
+	case GX_DIAG_WAIT_SEED:
+		if (finish_count == gx_diag_finish_baseline)
+			break;
+		pr_info("gcn-gx: seed PE finish IRQ validated at count=%u\n",
+			finish_count);
+		gx_diag_finish_baseline = finish_count;
+		fifo_pos = 0;
+		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
+		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
+		gx_submit_cmds("green");
+		gx_diag_phase = GX_DIAG_WAIT_GREEN;
+		break;
+
+	case GX_DIAG_WAIT_GREEN:
+		if (finish_count == gx_diag_finish_baseline)
+			break;
+		pr_info("gcn-gx: green seed complete; submitting red draw\n");
+		gx_diag_finish_baseline = finish_count;
+		fifo_pos = 0;
+		gx_setup_vertex_color_state(width, height);
+		gx_draw_color_quad(width, height, 0xff, 0x00, 0x00);
+		gx_load_bp_reg(0x45000002);
+		gx_submit_cmds("draw");
+		gx_diag_phase = GX_DIAG_WAIT_DRAW;
+		break;
+
+	case GX_DIAG_WAIT_DRAW:
+		if (finish_count == gx_diag_finish_baseline)
+			break;
+		pr_info("gcn-gx: draw PE finish observed; copying EFB readout\n");
+		fifo_pos = 0;
+		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
+		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
+		gx_submit_cmds("readout");
+		gx_diag_phase = GX_DIAG_DONE;
+		break;
+
+	case GX_DIAG_DONE:
+		break;
+	}
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
 
@@ -1316,10 +1393,8 @@ int gcn_gx_init(void)
 	pe_regs = (u16 __iomem *)(hw_base + GX_PE_OFFSET);
 	pi_regs = (u32 __iomem *)(hw_base + 0x3000);
 
-	/* Enable PE events and acknowledge stale token/finish status. */
-	pe_write(PE_REG_INTR_STATUS,
-		 PE_TOKEN_ENABLE | PE_FINISH_ENABLE |
-		 PE_TOKEN_BIT | PE_FINISH_BIT);
+	/* Clear stale PE events before the finish IRQ line is unmasked. */
+	pe_write(PE_REG_INTR_STATUS, PE_TOKEN_BIT | PE_FINISH_BIT);
 
 	/* Redirect wgPipe DMA bursts to our zeroed buffer (was addr 0 in mini) */
 	iowrite32be(fifo_phys, pi_regs + PI_REG_FIFO_WPTR);
@@ -1332,6 +1407,26 @@ int gcn_gx_init(void)
 	pr_info("gcn-gx: init: E fifo_init ret=%d\n", ret);
 	if (ret)
 		goto err_hw;
+
+	gx_pe_finish_irq = irq_create_mapping(NULL, GX_PE_FINISH_HWIRQ);
+	if (!gx_pe_finish_irq) {
+		ret = -ENXIO;
+		pr_err("gcn-gx: failed to map PE finish hwirq %u\n",
+		       GX_PE_FINISH_HWIRQ);
+		goto err_hw;
+	}
+	ret = request_irq(gx_pe_finish_irq, gx_pe_finish_handler, 0,
+			  "gcn-gx-pe-finish", &gx_pe_finish_irq);
+	if (ret) {
+		pr_err("gcn-gx: failed to request PE finish IRQ %u: %d\n",
+		       gx_pe_finish_irq, ret);
+		goto err_irq_mapping;
+	}
+	pe_write(PE_REG_INTR_STATUS,
+		 PE_TOKEN_ENABLE | PE_FINISH_ENABLE |
+		 PE_TOKEN_BIT | PE_FINISH_BIT);
+	pr_info("gcn-gx: PE finish hwirq %u mapped to IRQ %u\n",
+		GX_PE_FINISH_HWIRQ, gx_pe_finish_irq);
 
 	/*
 	 * Texture tile buffer: must be in MEM1.  The GX texture unit is
@@ -1349,6 +1444,10 @@ int gcn_gx_init(void)
 	gx_accel_ready = true;
 	return 0;
 
+err_irq_mapping:
+	irq_dispose_mapping(gx_pe_finish_irq);
+	gx_pe_finish_irq = 0;
+
 err_fifo:
 	gx_fifo_buf_raw = NULL;
 	gx_fifo_buf = NULL;
@@ -1365,6 +1464,12 @@ void gcn_gx_exit(void)
 	gx_accel_ready = false;
 	gx_wait_idle();
 	cp_write(CP_REG_CTRL, 0);
+	if (gx_pe_finish_irq) {
+		pe_write(PE_REG_INTR_STATUS, PE_TOKEN_BIT | PE_FINISH_BIT);
+		free_irq(gx_pe_finish_irq, &gx_pe_finish_irq);
+		irq_dispose_mapping(gx_pe_finish_irq);
+		gx_pe_finish_irq = 0;
+	}
 
 	/* gx_tex_raw is NULL (tex_buf is a MEM1 reserve, not kmalloc'd) */
 	kfree(gx_tex_raw);

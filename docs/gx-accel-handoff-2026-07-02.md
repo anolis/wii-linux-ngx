@@ -2974,6 +2974,33 @@ after the separate PE-finish handler fires should a later VI callback copy EFB
 to XFB. This avoids the impossible nested-interrupt wait and tests the actual
 completion mechanism used by libogc.
 
+### Asynchronous PE-finish IRQ test
+
+This test maps Flipper PIC hwirq 10 through the default IRQ domain and registers
+a real PE-finish handler. The handler acknowledges finish at `PE+0x0a`,
+increments a shared completion count, and returns. No VI handler spins waiting
+for it. The RGB565 diagnostic advances across retraces:
+
+1. Submit a known-good green copy-clear and return from VI.
+2. Require the PE-finish count to advance, positively validating hwirq 10.
+3. Submit a second copy so the displayed and EFB baselines are both green;
+   require its independent finish event.
+4. Submit the full-screen red direct-colour quad plus `BP 0x45`, then return.
+5. Only after the separate PE IRQ increments the count does a later VI callback
+   copy EFB to XFB and stop the test.
+
+The token marker remains on each submission for command-progress diagnostics,
+but it is not used as raster completion. Expected final display is red if the
+primitive wrote EFB, or green if it did not. Failure to validate the very first
+known-copy finish IRQ invalidates the IRQ mechanism and must stop interpretation
+before the primitive phase.
+
+Built image SHA-256:
+
+```text
+da235b7e262d35aabcbc01557466d4fe129c922c9f86510291a5f6e282165003
+```
+
 Hardware result: **solid green; finish status still did not latch.** The enable
 bit itself read back correctly as `PE=0002`, proving that the corrected MMIO
 register is writable, but bit 3 remained clear for all four 20 ms windows:
