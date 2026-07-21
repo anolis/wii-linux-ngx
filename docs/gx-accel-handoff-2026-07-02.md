@@ -4589,6 +4589,27 @@ The next graphics-only sharpness test should clear bit 4 of texture mode BP
 with changes to the validated tiling, FIFO stream, copy filter, or XFB
 presentation path.
 
+### Restore virtual-terminal device nodes with devtmpfs
+
+The active apparatus test enables `CONFIG_DEVTMPFS` and
+`CONFIG_DEVTMPFS_MOUNT` in the tracked Wii defconfig and the build
+configuration. The preceding normal-init boot proved that all six gettys were
+failing because `/dev/tty1` through `/dev/tty6` did not exist. Kernel console
+scrollback still worked because it does not require a userspace getty, which
+explains the otherwise contradictory keyboard observation.
+
+No GX source, command, filter, scheduling, or presentation value changes in
+this image. Success requires a visible `tty1` login prompt that accepts typed
+input, with no repeated getty failures in `auth.log`. The existing blurry but
+stable alternating-XFB output should remain unchanged. This is an apparatus
+repair, not the pending texture-filter sharpness test.
+
+Built image SHA-256:
+
+```text
+cf1e10470ca3293b37719724bf5e34507b533a1fa7994ff35543a1f133e5f54a
+```
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
