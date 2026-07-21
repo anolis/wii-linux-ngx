@@ -881,24 +881,6 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_cp_reg(0x90, 0x00000000);
 }
 
-/* Re-emit libogc's deferred vertex-consumer state order immediately pre-draw. */
-static void gx_reemit_vertex_consumer_state(void)
-{
-	gx_load_bp_reg(0x00000010);
-	gx_load_cp_reg(0x50, 0x00002200);
-	gx_load_cp_reg(0x60, 0x00000000);
-	gx_load_xf_reg(0x1008, 0x00000001);
-	gx_load_cp_reg(0x70, 0x40016008);
-	gx_load_cp_reg(0x80, 0x80000000);
-	gx_load_cp_reg(0x90, 0x00000000);
-	gx_load_xf_reg(0x1009, 0x00000001);
-	gx_load_xf_reg(0x100e, 0x00000401);
-	gx_load_xf_reg(0x1010, 0x00000401);
-	gx_load_xf_reg(0x103f, 0x00000000);
-	gx_load_cp_reg(0x30, 0x00000000);
-	gx_load_xf_reg(0x1018, 0x00000000);
-}
-
 /*
  * gx_setup_texture_rgb565 - bind a tiled RGB565 buffer to texmap 0.
  *
@@ -1356,6 +1338,7 @@ static const u8 gx_reference_red_frame[] = {
 
 #define GX_REFERENCE_FRAME_SIZE		564
 #define GX_REFERENCE_XFB_ADDR_OFFSET	0x22c
+#define GX_REFERENCE_PROJECTION_Z_OFFSET	0x13e
 
 static void gx_load_libogc_init_preamble(void)
 {
@@ -1411,6 +1394,8 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 
 	memcpy(fifo + start, gx_reference_red_frame,
 	       sizeof(gx_reference_red_frame));
+	/* Challenge the proven frame with the generated projection's Z offset. */
+	memset(fifo + start + GX_REFERENCE_PROJECTION_Z_OFFSET, 0, sizeof(u32));
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 0] = copy_addr >> 16;
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 1] = copy_addr >> 8;
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 2] = copy_addr;
@@ -1427,7 +1412,6 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
 	u32 finish_count;
-	int i;
 
 	(void)vfb;
 	finish_count = ACCESS_ONCE(gx_pe_finish_count);
@@ -1458,25 +1442,18 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	case GX_DIAG_WAIT_GREEN:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: green seed complete; testing late vertex-state tail\n");
+		pr_info("gcn-gx: green seed complete; challenging projection Z offset\n");
 		gx_diag_finish_baseline = finish_count;
 		fifo_pos = 0;
-		gx_setup_vertex_color_state(width, height);
-		gx_reemit_vertex_consumer_state();
-		gx_draw_color_quad(width, height, 0xff, 0x00, 0x00);
-		gx_load_bp_reg(0x45000002);
-		for (i = 0; i < 32; i++)
-			gx_wr8(0);
-		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
-		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
-		gx_submit_cmds("tail");
+		gx_load_reference_red_frame(xfb_phys, width, height);
+		gx_submit_cmds("projz");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;
 		break;
 
 	case GX_DIAG_WAIT_DRAW:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: late vertex-state tail PE finish observed\n");
+		pr_info("gcn-gx: projection-Z challenge PE finish observed\n");
 		gx_diag_phase = GX_DIAG_DONE;
 		break;
 

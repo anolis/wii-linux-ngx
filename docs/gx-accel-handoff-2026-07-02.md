@@ -4256,6 +4256,33 @@ late vertex tail is proven insufficient, so the next test should isolate a
 specific missing command or an earlier raster/XF ordering difference rather
 than adding another broad state group.
 
+### Challenge the projection Z-translation word
+
+A mechanical decode of the complete proven frame exposed a projection mismatch
+that the earlier projection-precision challenge did not cover. The proven
+frame's seven-word `XF 0x1020..0x1026` load sets word 5 (`XF 0x1025`, the Z
+translation coefficient) to `0xbf800000` (`-1.0`). The generated
+`gx_setup_vertex_color_state()` path instead writes `0x00000000` there. The
+earlier challenge changed only the one-ULP-different X and Y scale words at
+frame offsets `0x12a` and `0x132`, so its red result says nothing about this
+larger Z-translation difference.
+
+This build restores the untouched proven 564-byte frame and changes only its
+four bytes at offset `0x13e` from `bf 80 00 00` to `00 00 00 00`. All other
+state, command ordering, vertex data, fence, copy, and XFB-address patching are
+unchanged. The ruled-out late-tail helper is removed from the active source.
+
+Built image SHA-256:
+
+```text
+df8a4d765d9c491d8c735c0e2232dc5f46cd17eacdd1419966a8b5ac084f6a98
+```
+
+Validity requires `projz WT=0240 pos=576`, token `0x0003`, third PE-finish IRQ,
+and complete drain. Red rules out the generated Z-translation value. Green
+identifies this exact projection word as necessary for primitive visibility and
+directly motivates correcting the generated projection helper.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
