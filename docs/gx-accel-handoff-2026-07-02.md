@@ -4316,6 +4316,20 @@ operational and closes the primitive-rendering reverse-engineering phase.
 Green means the projection fix is necessary but a second generated-path blocker
 remains.
 
+Hardware result: **solid red.** The fresh log validates the generated-only
+`drawcopy` stream at `WT=0220 pos=544`, token `0x0003` after 720 microseconds,
+the third PE-finish IRQ, and complete drain to `RDoff=WToff=0x0220`. No captured
+FIFO bytes were used. This confirms that correcting `XF 0x1025` from `0.0` to
+`-1.0` fixes the driver-generated primitive path and closes the direct-colour
+EFB-write investigation.
+
+Next retain the corrected projection and move to a controlled RGB565 texture
+test. Start with a CPU-generated tiled pattern in the reserved texture buffer,
+then use the generated texture state, textured quad, and validated EFB-to-XFB
+copy. A recognizable pattern provides a positive control for tiling, texture
+addressing, cache invalidation, texcoord generation, and TEV sampling before
+connecting the live Linux virtual framebuffer.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
