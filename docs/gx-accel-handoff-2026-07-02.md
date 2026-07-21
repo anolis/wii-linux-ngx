@@ -3739,6 +3739,27 @@ for PE finish. Keep all generated state unchanged and combine those operations.
 This distinguishes a CP/FIFO submission-boundary effect from another state-value
 mismatch.
 
+### Combine generated draw and copy in one FIFO submission
+
+This build changes only submission topology. After generated state and the red
+quad, it emits BP 0x45, exactly 32 zero/NOP bytes, the same green copy-clear
+state used by the split test, and the EFB-to-XFB copy before calling
+`gx_submit_cmds()` once. The now-unneeded intermediate VI phase and second CP
+restart are removed. Corrected scissor state, sample positions, and every other
+generated register value remain unchanged.
+
+Built image SHA-256:
+
+```text
+8e3f347238cd04527f83068f1999913a1fe4cfea601e9d962bafe4185783297b
+```
+
+Validity requires one `drawcopy` submission at `WT=0220 pos=544`, expected token
+and finish IRQ, and complete drain to `RDoff=WToff=0x0220`. Red means disabling
+and reprogramming CP between draw and copy lost or invalidated the EFB result
+despite PE finish. Green rules out submission topology and returns the search to
+specific generated-state differences or harmful extra commands.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
