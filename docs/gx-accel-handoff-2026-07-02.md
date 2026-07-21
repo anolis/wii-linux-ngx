@@ -4163,6 +4163,34 @@ from the generated-only stream. Green proves at least one generated write is
 harmful despite later proven state overwriting all ordinary shared registers,
 giving a bounded setup stream to bisect.
 
+### Prefix the proven frame with the complete generated setup
+
+The active path restores the original untouched 564-byte frame and emits the
+complete 370-byte `gx_setup_vertex_color_state(640, 480)` stream immediately
+before it. This includes every generated BP, CP, XF, position-matrix,
+texture-matrix, viewport, projection, and vertex-format write, including the
+corrected BP 0x59 value and all previously challenged differences. The proven
+frame then overwrites shared visible state before issuing its known-good draw
+and copy.
+
+The resulting byte count before alignment is:
+
+```text
+370 generated setup + 564 proven frame + 10 token marker = 944 bytes
+944 padded to the next 32-byte boundary = 960 bytes (0x03c0)
+```
+
+Built image SHA-256:
+
+```text
+42514106468d29f48629b5ffb5aec9ecfc443560b4511321b98ee705f6466e0e
+```
+
+Validity requires `preset WT=03c0 pos=960`, expected token and third finish IRQ,
+and complete drain. Red proves the complete generated setup does not poison
+hidden pipeline state. Green proves at least one generated command has a
+persistent harmful effect and makes this 370-byte prefix the next bisect range.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
