@@ -3455,6 +3455,45 @@ not visibly alter the green EFB clear. This rules out the tested ordinary-comman
 subset of libogc's one-time `GX_Init()` preamble. Keep the preamble available as
 known-safe initialization, but investigate low-level CP/PI/PE MMIO state next.
 
+### Correct the off-by-one PI FIFO register map
+
+The low-level comparison found a longstanding concrete bug in this driver. It
+defined PI FIFO BASE/END/WPTR as 32-bit indices `2/3/4` (offsets
+`0x08/0x0c/0x10`) and invented a `PI_FIFO_CTRL` register at index `5`
+(`0x14`). Both libogc and Dolphin independently define the real mapping as:
+
+```text
+PI + 0x0c (index 3): FIFO_BASE
+PI + 0x10 (index 4): FIFO_END
+PI + 0x14 (index 5): FIFO_WPTR
+PI + 0x18 (index 6): FIFO_RESET
+```
+
+There is no FIFO enable/control register at `0x14`; that address is the real
+write pointer. Consequently every old submission wrote the intended base into
+an undefined `0x08` register, the intended end into the real BASE, the intended
+write pointer into the real END, and finally the value `1` into the real WPTR.
+The init-time safety redirect likewise wrote FIFO_END instead of WPTR. Old
+`PIoff` logs read the real FIFO_END register and must not be treated as write-
+pointer observations.
+
+This test changes only those three indices to `3/4/5` and removes the bogus
+`PI_FIFO_CTRL_EN` write. CP FIFO programming, LINKEN/GPRESET, the known-safe
+libogc command preamble, two green controls, and exact 564-byte red replay remain
+unchanged.
+
+Built image SHA-256:
+
+```text
+42b81188b2f4877632921f0357c105a27c9c3e9483c526cdcd9a4008d1c864da
+```
+
+Expected result: red means the malformed PI FIFO configuration allowed command
+tokens and copy operations through but prevented primitive rasterization. Green
+means the correction is still required for correctness but is not the EFB-write
+fix. Black or a missing diagnostic write indicates that restoring real PI/CP
+link semantics exposes another takeover-order bug.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`

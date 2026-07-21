@@ -129,18 +129,15 @@ static inline u16 cp_read(int reg)
 
 /*
  * PI FIFO registers (u32, big-endian) at 0x0C003000 + offset:
- *   index 2 (0x08): FIFO_BASE  — physical start of FIFO buffer
- *   index 3 (0x0C): FIFO_END   — physical end of FIFO buffer
- *   index 4 (0x10): FIFO_WPTR  — write pointer; wgPipe DMA bursts here
- *   index 5 (0x14): FIFO_CTRL  — bit 0 = enable
+ *   index 3 (0x0C): FIFO_BASE  — physical start of FIFO buffer
+ *   index 4 (0x10): FIFO_END   — physical end of FIFO buffer
+ *   index 5 (0x14): FIFO_WPTR  — write pointer; wgPipe DMA bursts here
  * All read back as 0x00000000 after mini, meaning wgPipe WPTR = 0
  * (physical address 0x00000000 = kernel exception vectors = crash on first burst).
  */
-#define PI_REG_FIFO_BASE	2
-#define PI_REG_FIFO_END		3
-#define PI_REG_FIFO_WPTR	4
-#define PI_REG_FIFO_CTRL	5
-#define PI_FIFO_CTRL_EN		BIT(0)
+#define PI_REG_FIFO_BASE	3
+#define PI_REG_FIFO_END		4
+#define PI_REG_FIFO_WPTR	5
 
 static inline void pi_write(int reg, u32 val)
 {
@@ -384,7 +381,7 @@ static int gx_fifo_init(void)
 	pr_info("gcn-gx: fifo_init: CR=0 SR=0x%04x\n", cp_read(CP_REG_STATUS));
 
 	/*
-	 * All remaining setup (PI BASE/END/CTRL_EN, LINKEN, GPRESET) is
+	 * All remaining setup (PI BASE/END/WPTR, LINKEN, GPRESET) is
 	 * deferred to gx_submit_cmds().  LINKEN causes a deferred CP error
 	 * when set here because CP_BASE/END still hold mini's invalid values;
 	 * in interrupt context at submit time that error can't propagate.
@@ -1149,7 +1146,6 @@ static void gx_submit_cmds(const char *phase)
 	pi_write(PI_REG_FIFO_BASE, phys_start & ~0x1fu);
 	pi_write(PI_REG_FIFO_END,  phys_end   & ~0x1fu);
 	pi_write(PI_REG_FIFO_WPTR, phys_wt);
-	pi_write(PI_REG_FIFO_CTRL, PI_FIFO_CTRL_EN);
 
 	if (do_log)
 		pr_info("gcn-gx: f%u %s pre: SR=%04x RD=%04x WT=%04x pos=%u\n",
