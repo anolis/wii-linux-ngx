@@ -3449,6 +3449,12 @@ MMIO initialization or state not represented by ordinary commands. Black or a
 missing SD diagnostic write means one of these preamble commands is unsafe in
 the inherited Mini/Linux GX environment and requires a command-range bisect.
 
+Hardware result: **solid green.** The complete command stream drained without
+the hard-failure behavior caused by PI `FIFO_RESET`, but the primitive still did
+not visibly alter the green EFB clear. This rules out the tested ordinary-command
+subset of libogc's one-time `GX_Init()` preamble. Keep the preamble available as
+known-safe initialization, but investigate low-level CP/PI/PE MMIO state next.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
