@@ -1410,7 +1410,7 @@ static void vi_gx_then_delayed_cpu_red_diag(struct vi_ctl *ctl)
 	gcn_gx_blit_fb_rgb565(vfb_mem, (u32)gx_fb_start,
 			      info->var.xres, info->var.yres);
 
-	/* Leave the first five seconds GX-only, then mark CPU output in red. */
+	/* Leave the first 300 refreshes GX-only, then mark CPU output in red. */
 	if (frame < 300)
 		return;
 	if (frame == 300)

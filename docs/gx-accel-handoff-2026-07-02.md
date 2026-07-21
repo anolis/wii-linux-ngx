@@ -2767,7 +2767,7 @@ credited to repeated GX copy-clear, and the initial flicker cannot be cleanly
 separated from the CPU/GX overwrite race.
 
 The next build removes the old immediate green CPU fallback and its unreliable
-pixel sampling.  For the first 300 refreshes (about five seconds), `gcnfb.c`
+pixel sampling.  For the first 300 refreshes, `gcnfb.c`
 runs only the unchanged repeated GX green copy-clear path.  Starting at frame
 300, it performs a CPU YUYV **red** fill after every GX call.  This separates
 the writers by both time and color: green or green/black during the first
@@ -2797,6 +2797,27 @@ Built image SHA-256, checksum-verified after deployment to
 ```text
 2d115b2a3a5dafa379fdf2c691752730f9539fa1e9b3aacb861b3355d94ea603
 ```
+
+Hardware result: **solid green, then green/red flicker, then solid red**.
+
+This is a successful positive control for both writers.  The first 300
+refreshes were GX-only, so their stable green output proves that repeated GX
+copy-clear and EFB-to-XFB copy are stable without a competing CPU writer.  The
+flicker began only when the delayed CPU red fill joined at frame 300, directly
+confirming that the earlier green/black behavior was an XFB overwrite race.
+The final stable red validates the CPU YUYV fill and VI scanout independently.
+
+The confirmed working boundary is now: CP FIFO submission/drain, GX copy-clear,
+EFB-to-XFB display copy, CPU XFB writes, and VI scanout.  The remaining graphics
+failure is downstream primitive rasterization.  Future primitive tests should
+use the stable GX green copy-clear as their background/readout and must not add
+a CPU fallback writer or infer full-frame results from sparse pixel samples.
+
+The returned log independently confirms clean GX command processing: frames
+0-3 all report `RDoff=0040 WToff=0040`, with no slow, stall, timeout, or
+pipeline-idle warning.  The delayed CPU writer enabled at `13.134929s`, so 300
+refresh callbacks took about 13 seconds in this boot rather than the initially
+estimated five seconds.
 
 ---
 
