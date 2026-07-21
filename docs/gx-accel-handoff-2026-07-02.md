@@ -2875,6 +2875,28 @@ its PE initialization before relying on the event. The next single-variable
 control will enable that PE source while leaving hwirq 10 masked at the
 Flipper PIC, then poll the same latched PE status from VI IRQ context.
 
+### Enabled-source retry
+
+The follow-up changes only PE interrupt-status bit 1: finish signalling is now
+enabled when the PE is initialized and when stale finish status is cleared
+before each submission. Flipper PIC hwirq 10 remains masked and no PE IRQ
+handler is registered, so the existing VI IRQ-context poll cannot deadlock on
+a nested interrupt. The command stream, green copy-clear visual baseline,
+20 ms polling window, and first-four-frame logging are unchanged.
+
+Success still requires `PE finish=1` on the known-good copy path. If status
+remains zero, the next step must validate the event via the Flipper interrupt
+cause register or a real PE IRQ handler outside the VI callback; it must not
+assume that a fixed delay is equivalent to raster completion.
+
+Built image SHA-256:
+
+```text
+be141e82d1ba37851c196919d9aef1cd59acac83d7f493abf222b37ffbe522b3
+```
+
+Expected visual result: unchanged solid green.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`

@@ -73,6 +73,7 @@
  * interrupt enables off and polls the latched finish status from VI IRQ context.
  */
 #define PE_FINISH_BIT		0x0008	/* bit 3: PEFinish status */
+#define PE_FINISH_ENABLE	0x0002	/* bit 1: enable finish signalling */
 
 /* BP command opcode — written to wgPipe before a 32-bit BP register value */
 #define GX_CMD_LOAD_BP_REG	0x61

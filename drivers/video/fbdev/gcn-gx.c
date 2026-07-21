@@ -1044,8 +1044,8 @@ static void gx_submit_cmds(void)
 			log_frame, cp_read(CP_REG_STATUS), 0,
 			phys_wt - phys_start, fifo_pos);
 
-	/* Clear any stale finish status; leave PE token/finish IRQs disabled. */
-	pe_write(PE_REG_INTR_STATUS, PE_FINISH_BIT);
+	/* Clear stale status and enable finish signalling; PIC hwirq 10 is masked. */
+	pe_write(PE_REG_INTR_STATUS, PE_FINISH_ENABLE | PE_FINISH_BIT);
 	cp_write(CP_REG_CTRL, CP_CR_GPRESET | CP_CR_LINKEN);
 
 	/*
@@ -1231,8 +1231,8 @@ int gcn_gx_init(void)
 	pe_regs = (u16 __iomem *)(hw_base + GX_PE_OFFSET);
 	pi_regs = (u32 __iomem *)(hw_base + 0x3000);
 
-	/* Disable PE interrupts and acknowledge stale token/finish status. */
-	pe_write(PE_REG_INTR_STATUS, 0x000c);
+	/* Enable finish signalling and acknowledge stale token/finish status. */
+	pe_write(PE_REG_INTR_STATUS, PE_FINISH_ENABLE | 0x000c);
 
 	/* Redirect wgPipe DMA bursts to our zeroed buffer (was addr 0 in mini) */
 	iowrite32be(fifo_phys, pi_regs + PI_REG_FIFO_WPTR);
