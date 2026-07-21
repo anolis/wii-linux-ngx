@@ -3566,6 +3566,26 @@ bytes (`0x0240`, including the driver's token marker). Red means the required
 state is wholly inside the captured frame; green means it is in the preamble and
 that 206-byte range can be bisected.
 
+### Test exact red frame without the libogc preamble
+
+This build removes only the call to `gx_load_libogc_init_preamble()` from the
+validated red path. It retains native 640x480 mode, the corrected PI register
+map, both green copy controls, all 564 captured frame bytes, runtime XFB address
+patch, and the driver's PE token marker. The preamble helper remains in source
+for later range tests but emits no commands in this build.
+
+Built image SHA-256:
+
+```text
+2816e412f543d6c7e3bbb6365b541163509a9ee73f1bed5a3ebb75e92646e5b6
+```
+
+Validity requires `mode is 640x480x16`, no loader warning, and replay
+`WT=0240 pos=576` followed by `RDoff=0240 WToff=0240`. Red proves the 564-byte
+public frame contains every command required for rasterization. Green proves at
+least one command in the omitted 206-byte one-time preamble is required and
+makes that range the next bisect target.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
