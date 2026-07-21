@@ -3494,6 +3494,30 @@ means the correction is still required for correctness but is not the EFB-write
 fix. Black or a missing diagnostic write indicates that restoring real PI/CP
 link semantics exposes another takeover-order bug.
 
+Hardware result: **solid green**, with normal diagnostic completion. The PI map
+correction is retained as an independently verified register fix.
+
+However, the fresh log exposed a more important test-apparatus failure. The
+replay submission was only 224 bytes (`WT=0x00e0 pos=224`) and emitted a warning
+at `gcn-gx.c:1383`. That line is the `width != 640 || height != 480` guard in
+`gx_load_reference_red_frame()`. The active framebuffer is the driver's default
+overscan-compensated `576x432` mode, so the loader returned without appending any
+of the 564 captured bytes. The 224-byte stream is exactly the 206-byte libogc
+preamble plus the driver's 10-byte token marker and alignment padding.
+
+**Retract the hardware conclusions from both "Replay the validated 564-byte
+libogc frame on hardware" and "Test libogc's one-time GX command preamble before
+exact replay."** Neither test actually submitted the captured frame. The green
+result does validate that the preamble itself is accepted, but it says nothing
+about whether the full captured draw works on Wii hardware. The warning from IRQ
+context also triggered later kernel corruption diagnostics, so the dimension
+guard must not be exercised again.
+
+The next build must select the framebuffer driver's existing `nostalgic` mode,
+which uses the native 640x480 dimensions expected by the independently validated
+capture. Keep the 564-byte command stream unchanged; a valid replay submission
+with the preamble and token padding must report `pos=800` (`0x0320`).
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
