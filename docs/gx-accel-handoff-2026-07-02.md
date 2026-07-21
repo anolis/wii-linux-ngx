@@ -4151,6 +4151,18 @@ Validity requires `noinitnop WT=0220 pos=544`, expected token and third finish
 IRQ, and complete drain. Red rules out the initial NOP block as pacing. Green
 means a no-op delay or gather boundary after the initial BP 0x43 is required.
 
+Hardware result: **red.** The fresh log validates 640x480 mode,
+`noinitnop WT=0220 pos=544`, token `0x0003`, third PE-finish IRQ, and complete
+drain to `RDoff=WToff=0x0220`. Neither captured 32-NOP block provides required
+pacing, synchronization, or a write-gather boundary.
+
+Next restore the untouched 564-byte frame and prepend the complete generated
+`gx_setup_vertex_color_state()` output. Red proves that generated setup commands
+do not poison hidden state and shifts the failure toward commands/order absent
+from the generated-only stream. Green proves at least one generated write is
+harmful despite later proven state overwriting all ordinary shared registers,
+giving a bounded setup stream to bisect.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
