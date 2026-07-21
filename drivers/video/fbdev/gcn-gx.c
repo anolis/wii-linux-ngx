@@ -1338,8 +1338,10 @@ static const u8 gx_reference_red_frame[] = {
 
 #define GX_REFERENCE_FRAME_SIZE		564
 #define GX_REFERENCE_XFB_ADDR_OFFSET	0x22c
-#define GX_REFERENCE_CP_MTXIDX_A_OFFSET	0x198
-#define GX_REFERENCE_XF_MTXIDX_A_OFFSET	0x1a1
+#define GX_REFERENCE_CP_MTXIDX_B_CMD_OFFSET	0x1a5
+#define GX_REFERENCE_CP_MTXIDX_B_CMD_SIZE	6
+#define GX_REFERENCE_XF_MTXIDX_B_CMD_OFFSET	0x1ab
+#define GX_REFERENCE_XF_MTXIDX_B_CMD_SIZE	9
 
 static void gx_load_libogc_init_preamble(void)
 {
@@ -1395,9 +1397,11 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 
 	memcpy(fifo + start, gx_reference_red_frame,
 	       sizeof(gx_reference_red_frame));
-	/* Challenge with the generated helper's zero matrix-index A value. */
-	memset(fifo + start + GX_REFERENCE_CP_MTXIDX_A_OFFSET, 0, 4);
-	memset(fifo + start + GX_REFERENCE_XF_MTXIDX_A_OFFSET, 0, 4);
+	/* The generated helper omits matrix-index B; replace both loads with NOPs. */
+	memset(fifo + start + GX_REFERENCE_CP_MTXIDX_B_CMD_OFFSET, 0,
+	       GX_REFERENCE_CP_MTXIDX_B_CMD_SIZE);
+	memset(fifo + start + GX_REFERENCE_XF_MTXIDX_B_CMD_OFFSET, 0,
+	       GX_REFERENCE_XF_MTXIDX_B_CMD_SIZE);
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 0] = copy_addr >> 16;
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 1] = copy_addr >> 8;
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 2] = copy_addr;
@@ -1444,23 +1448,18 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	case GX_DIAG_WAIT_GREEN:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: green seed complete; challenging red frame matrix state\n");
+		pr_info("gcn-gx: green seed complete; omitting red frame matrix-index B\n");
 		gx_diag_finish_baseline = finish_count;
 		fifo_pos = 0;
-		gx_load_xf_regs_n(0x0078, 8);
-		wg_f32_bits(F32_ONE);  wg_f32_bits(F32_ZERO);
-		wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
-		wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ONE);
-		wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
 		gx_load_reference_red_frame(xfb_phys, width, height);
-		gx_submit_cmds("matrix");
+		gx_submit_cmds("nomtxb");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;
 		break;
 
 	case GX_DIAG_WAIT_DRAW:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: matrix-state challenge PE finish observed\n");
+		pr_info("gcn-gx: matrix-index B omission PE finish observed\n");
 		gx_diag_phase = GX_DIAG_DONE;
 		break;
 

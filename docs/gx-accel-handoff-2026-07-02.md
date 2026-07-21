@@ -3895,6 +3895,35 @@ state group. Do not split this now-ruled-out matrix group merely because it was
 grouped: a red positive-control result proves every change in the group is
 compatible with the working frame.
 
+### Omit matrix-index B like the generated helper
+
+The fresh comparison found that the proven frame explicitly loads matrix-index
+B through CP 0x40 and XF 0x1019, both with payload `0x00f3cf3c`, while
+`gx_load_identity_pos_mtx0()` initializes only matrix-index A. This build
+reproduces the generated helper's omission exactly by replacing the complete
+commands with equal-length NOPs in the otherwise-proven frame:
+
+```text
+frame 0x1a5..0x1aa: CP 0x40 0x00f3cf3c -> six NOP bytes
+frame 0x1ab..0x1b3: XF 0x1019 0x00f3cf3c -> nine NOP bytes
+```
+
+Unlike writing zero into those registers, omitting the commands preserves the
+hardware values inherited after the same green seed used by the generated-path
+test. Command positions and total frame length remain unchanged. All patches
+from the previous matrix-A/extra-XF challenge are removed.
+
+Built image SHA-256:
+
+```text
+0e9598c3d2a5ae43ff38dd52e04456c9579fad0ec5ff8e3a358595aa5935549b
+```
+
+Validity requires `nomtxb WT=0240 pos=576`, expected token and finish IRQ, and
+complete drain. Green identifies the missing matrix-index B initialization as a
+generated-path blocker. Red proves the omission is harmless for this draw under
+the same inherited hardware state.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
