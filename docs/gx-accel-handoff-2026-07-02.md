@@ -3924,6 +3924,18 @@ complete drain. Green identifies the missing matrix-index B initialization as a
 generated-path blocker. Red proves the omission is harmless for this draw under
 the same inherited hardware state.
 
+Hardware result: **red.** The fresh log validates 640x480 mode,
+`nomtxb WT=0240 pos=576`, token `0x0003`, PE-finish IRQ, and complete drain to
+`RDoff=WToff=0x0240`. Omitting both CP 0x40 and XF 0x1019 matrix-index B loads is
+harmless under the same inherited state and cannot explain the generated path's
+green output.
+
+Next challenge the proven frame with the generated projection helper's two
+known one-ULP truncations: XF 0x1020 `0x3b4ccccd -> 0x3b4ccccc` and XF 0x1022
+`0xbb888889 -> 0xbb888888`. This is not a credible full-frame failure mechanism,
+but it is the smallest remaining exact mismatch and should be closed before
+testing larger omitted-state groups.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
