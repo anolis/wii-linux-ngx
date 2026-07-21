@@ -4191,6 +4191,23 @@ and complete drain. Red proves the complete generated setup does not poison
 hidden pipeline state. Green proves at least one generated command has a
 persistent harmful effect and makes this 370-byte prefix the next bisect range.
 
+Hardware result: **full-width red with no historical green sliver at the left
+edge.** The fresh log validates 640x480 mode, `preset WT=03c0 pos=960`, token
+`0x0003`, third PE-finish IRQ, and complete drain to `RDoff=WToff=0x03c0`.
+Therefore none of the 370 generated setup bytes poisons persistent hidden state;
+the generated-only failure is instead caused by a missing command or command
+ordering before its draw. The disappearance of the sliver shows that some
+generated prefix state also corrects exact-frame edge coverage. Correct BP 0x59
+is the leading explanation given the earlier bad-offset clipping result, but
+this grouped test does not isolate attribution.
+
+Next return to the generated-only draw/copy path and re-emit its vertex-consumer
+state immediately before the primitive in the same order libogc deferred it in
+the proven frame: gen mode; VCD; XF VtxSpec; VAT; XF channel count/controls and
+texgen count; then CP/XF matrix-index A. Red identifies late ordered state
+commit as the missing mechanism. Green rules out this complete 95-byte tail and
+leaves earlier raster-state ordering as the next target.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
