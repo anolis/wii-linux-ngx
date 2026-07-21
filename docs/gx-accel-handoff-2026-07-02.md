@@ -4098,6 +4098,28 @@ offsets 0x1ec..0x20b. Red rules out post-draw FIFO padding/pacing; green shows
 that the otherwise no-op byte gap is required between primitive completion and
 copy execution.
 
+### Remove the post-draw 32-NOP block
+
+The loader now emits bytes `0x000..0x1eb` of the exact proven frame followed
+immediately by original bytes `0x20c..0x233`, physically omitting only the 32
+NOP bytes at `0x1ec..0x20b`. This reduces the replay from 564 to 532 bytes. The
+BP 0x45 command at `0x1e7` is restored, and the XFB-address patch follows the
+compacted copy command to emitted offset `0x20c`.
+
+No state or payload value changes. With the submit helper's ten token bytes and
+final DMA alignment, the FIFO length becomes 544 bytes.
+
+Built image SHA-256:
+
+```text
+956ddf4c31185b034eaeca3a4e785f04ea752018428210b4b7122ad20b5da7e1
+```
+
+Validity requires `nonops WT=0220 pos=544`, expected token value, restored
+third PE-finish IRQ, and complete drain. Red rules out post-draw NOP pacing.
+Green means the byte gap between BP 0x45 and copy-state writes is required on
+hardware despite containing no semantic commands.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
