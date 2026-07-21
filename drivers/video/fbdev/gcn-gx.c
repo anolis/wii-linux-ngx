@@ -1338,6 +1338,9 @@ static const u8 gx_reference_red_frame[] = {
 
 #define GX_REFERENCE_FRAME_SIZE		564
 #define GX_REFERENCE_XFB_ADDR_OFFSET	0x22c
+#define GX_REFERENCE_TEV_ORDER_OFFSET	0x09e
+#define GX_REFERENCE_TEV_KSEL0_OFFSET	0x0bc
+#define GX_REFERENCE_TEV_KSEL1_OFFSET	0x0c1
 
 static void gx_load_libogc_init_preamble(void)
 {
@@ -1393,6 +1396,16 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 
 	memcpy(fifo + start, gx_reference_red_frame,
 	       sizeof(gx_reference_red_frame));
+	/* Challenge with the generated path's paired TEV register payloads. */
+	fifo[start + GX_REFERENCE_TEV_ORDER_OFFSET + 0] = 0x00;
+	fifo[start + GX_REFERENCE_TEV_ORDER_OFFSET + 1] = 0x00;
+	fifo[start + GX_REFERENCE_TEV_ORDER_OFFSET + 2] = 0x00;
+	fifo[start + GX_REFERENCE_TEV_KSEL0_OFFSET + 0] = 0x00;
+	fifo[start + GX_REFERENCE_TEV_KSEL0_OFFSET + 1] = 0x00;
+	fifo[start + GX_REFERENCE_TEV_KSEL0_OFFSET + 2] = 0x04;
+	fifo[start + GX_REFERENCE_TEV_KSEL1_OFFSET + 0] = 0x00;
+	fifo[start + GX_REFERENCE_TEV_KSEL1_OFFSET + 1] = 0x00;
+	fifo[start + GX_REFERENCE_TEV_KSEL1_OFFSET + 2] = 0x0e;
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 0] = copy_addr >> 16;
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 1] = copy_addr >> 8;
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 2] = copy_addr;
@@ -1439,20 +1452,18 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	case GX_DIAG_WAIT_GREEN:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: green seed complete; challenging red frame with SU size\n");
+		pr_info("gcn-gx: green seed complete; challenging red frame TEV pairs\n");
 		gx_diag_finish_baseline = finish_count;
 		fifo_pos = 0;
-		gx_load_bp_reg(0x30000000 | (u32)(width - 1));
-		gx_load_bp_reg(0x31000000 | (u32)(height - 1));
 		gx_load_reference_red_frame(xfb_phys, width, height);
-		gx_submit_cmds("susize");
+		gx_submit_cmds("tevpairs");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;
 		break;
 
 	case GX_DIAG_WAIT_DRAW:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: SU-size challenge PE finish observed\n");
+		pr_info("gcn-gx: TEV-pair challenge PE finish observed\n");
 		gx_diag_phase = GX_DIAG_DONE;
 		break;
 

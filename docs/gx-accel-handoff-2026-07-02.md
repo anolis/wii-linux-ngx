@@ -3817,6 +3817,33 @@ order and swap selectors but clear paired unused-stage/KSEL fields. Red confirms
 those inactive differences are harmless; green shows hardware depends on one of
 the supposedly inactive preserved fields.
 
+### Challenge the proven frame with generated TEV paired fields
+
+The active path again uses the exact 564-byte frame, but after copying it into
+the FIFO buffer patches these payloads in place without changing command order
+or stream length:
+
+```text
+BP 0x28: 0x049000 -> 0x000000
+BP 0xf6: 0x018064 -> 0x000004
+BP 0xf7: 0x01806e -> 0x00000e
+```
+
+The generated values retain stage-0's texture-disabled/color-0 order and
+identity raster swap selectors while clearing paired stage-1 and konst-select
+fields. The prior SU-size challenge bytes are removed.
+
+Built image SHA-256:
+
+```text
+9d3cff9017797d808adce8817ae8bba454aefc3ccda8154e6b897622b11d6353
+```
+
+Validity requires `tevpairs WT=0240 pos=576`, expected token and finish IRQ, and
+complete drain. Red rules out all three paired-register differences together.
+Green means one of the fields thought inactive is required and this three-value
+group must be split.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
