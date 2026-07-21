@@ -62,6 +62,7 @@
 
 /* PE register indices (16-bit, word-indexed from PE base 0x0C001000) */
 #define PE_REG_INTR_STATUS	5	/* byte offset 0x0a */
+#define PE_REG_TOKEN		7	/* byte offset 0x0e */
 /*
  * PE interrupt-status layout (libogc / YAGCD):
  *   bit 0: PETokenEnable  (interrupt enable)
@@ -69,11 +70,13 @@
  *   bit 2: PEToken  (status - token was received)
  *   bit 3: PEFinish (status - draw-done fired after BP 0x45)
  *
- * Status bits are write-one-to-clear. The positive-control path leaves both
- * interrupt enables off and polls the latched finish status from VI IRQ context.
+ * Status bits are write-one-to-clear. PE event sources may be enabled while
+ * their Flipper PIC lines remain masked for polling from VI IRQ context.
  */
 #define PE_FINISH_BIT		0x0008	/* bit 3: PEFinish status */
 #define PE_FINISH_ENABLE	0x0002	/* bit 1: enable finish signalling */
+#define PE_TOKEN_BIT		0x0004	/* bit 2: PEToken status */
+#define PE_TOKEN_ENABLE		0x0001	/* bit 0: enable token signalling */
 
 /* BP command opcode — written to wgPipe before a 32-bit BP register value */
 #define GX_CMD_LOAD_BP_REG	0x61

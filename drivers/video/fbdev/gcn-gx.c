@@ -63,6 +63,7 @@ static void *gx_tex_raw;
 static void *gx_tex_buf;
 static bool gx_log_next_submit;
 static u32 gx_current_frame;
+static u16 gx_expected_token;
 
 static inline u16 pe_read(int reg)
 {
@@ -968,10 +969,9 @@ static void gx_copy_efb_to_xfb(u32 xfb_phys, u16 width, u16 height, bool clear)
 
 	/*
 	 * BP 0x45 = 2: PE draw-done trigger (libogc GX_DrawDone/GX_SetDrawDone).
-	 * Queued behind the copy command; when the PE processes it the PE FINISH
-	 * signal fires.  On this hardware PE FINISH is interrupt-driven -- the
-	 * status bit in PE_CTRL_STAT clears before software can poll it.
-	 * gx_submit_cmds therefore uses a fixed udelay rather than polling.
+	 * Queued behind the copy command. PE-finish polling has not yet passed a
+	 * positive control, so this command must not currently be treated as a
+	 * validated software fence.
 	 */
 	gx_load_bp_reg(0x45000002);
 }
@@ -1005,12 +1005,13 @@ static void gx_submit_cmds(void)
 	static bool logged_first_slow;
 	static bool logged_first_stall;
 	bool do_log = frame_log < 4 || gx_log_next_submit;
+	bool token_seen;
 	u32 log_frame = gx_log_next_submit ? gx_current_frame : frame_log;
 	u32 phys_start = (u32)virt_to_phys(gx_fifo_buf);
 	u32 phys_end   = phys_start + GX_FIFO_SIZE - 4;
 	u32 phys_wt;
 	u32 cp_rd, cp_wt;
-	u16 pe_status;
+	u16 pe_status, pe_token;
 	int pe_timeout;
 	int timeout;
 
@@ -1044,36 +1045,43 @@ static void gx_submit_cmds(void)
 			log_frame, cp_read(CP_REG_STATUS), 0,
 			phys_wt - phys_start, fifo_pos);
 
-	/* Clear stale status and enable finish signalling; PIC hwirq 10 is masked. */
-	pe_write(PE_REG_INTR_STATUS, PE_FINISH_ENABLE | PE_FINISH_BIT);
+	/* Enable PE events and acknowledge stale token/finish status. */
+	pe_write(PE_REG_INTR_STATUS,
+		 PE_TOKEN_ENABLE | PE_FINISH_ENABLE |
+		 PE_TOKEN_BIT | PE_FINISH_BIT);
 	cp_write(CP_REG_CTRL, CP_CR_GPRESET | CP_CR_LINKEN);
 
 	/*
-	 * Positive control for PE completion. BP 0x45 follows the known-good
-	 * copy-clear command, so finish must latch at PE+0x0a if the register
-	 * mapping and draw-done mechanism are correct. A PE interrupt cannot be
-	 * serviced while this VI interrupt handler is running, hence polling.
+	 * Positive control for PE event delivery. The command stream contains
+	 * libogc's exact BP 0x48/BP 0x47 draw-sync sequence with a new token each
+	 * frame. Poll both PE token status and the token-value register so either
+	 * independently observable effect can validate downstream BP execution.
 	 */
 	pe_timeout = 2000;
 	do {
 		pe_status = pe_read(PE_REG_INTR_STATUS);
-		if (pe_status & PE_FINISH_BIT)
+		pe_token = pe_read(PE_REG_TOKEN);
+		if ((pe_status & PE_TOKEN_BIT) || pe_token == gx_expected_token)
 			break;
 		udelay(10);
 	} while (--pe_timeout);
+	token_seen = (pe_status & PE_TOKEN_BIT) || pe_token == gx_expected_token;
 
-	if (pe_status & PE_FINISH_BIT) {
-		/* Preserve enable bits and acknowledge only the finish status. */
+	if (pe_status & (PE_TOKEN_BIT | PE_FINISH_BIT)) {
+		/* Preserve enable bits and acknowledge only asserted status. */
 		pe_write(PE_REG_INTR_STATUS,
-			 (pe_status & 0x0003) | PE_FINISH_BIT);
-	} else {
-		pr_warn_once("gcn-gx: PE finish positive control timed out (PE=%04x)\n",
-			     pe_status);
+			 (pe_status & 0x0003) |
+			 (pe_status & (PE_TOKEN_BIT | PE_FINISH_BIT)));
+	}
+	if (!token_seen) {
+		pr_warn_once("gcn-gx: PE token positive control timed out (PE=%04x token=%04x expected=%04x)\n",
+			     pe_status, pe_token, gx_expected_token);
 	}
 	if (do_log)
-		pr_info("gcn-gx: f%u PE finish=%u wait_us=%u status=%04x\n",
-			log_frame, !!(pe_status & PE_FINISH_BIT),
-			(2000 - pe_timeout) * 10, pe_status);
+		pr_info("gcn-gx: f%u PE token_status=%u finish=%u token=%04x expected=%04x wait_us=%u status=%04x\n",
+			log_frame, !!(pe_status & PE_TOKEN_BIT),
+			!!(pe_status & PE_FINISH_BIT), pe_token,
+			gx_expected_token, (2000 - pe_timeout) * 10, pe_status);
 
 	/* Read back RD after delay: confirms GP consumed commands */
 	cp_rd = ((u32)cp_read(CP_REG_RD_HI) << 16) |
@@ -1172,6 +1180,11 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	fifo_pos = 0;
 	gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
 	gx_copy_efb_to_xfb(xfb_phys, width, height, true);
+	gx_expected_token++;
+	if (!gx_expected_token)
+		gx_expected_token++;
+	gx_load_bp_reg(0x48000000 | gx_expected_token);
+	gx_load_bp_reg(0x47000000 | gx_expected_token);
 	gx_submit_cmds();
 }
 EXPORT_SYMBOL_GPL(gcn_gx_blit_fb_rgb565);
@@ -1231,8 +1244,10 @@ int gcn_gx_init(void)
 	pe_regs = (u16 __iomem *)(hw_base + GX_PE_OFFSET);
 	pi_regs = (u32 __iomem *)(hw_base + 0x3000);
 
-	/* Enable finish signalling and acknowledge stale token/finish status. */
-	pe_write(PE_REG_INTR_STATUS, PE_FINISH_ENABLE | 0x000c);
+	/* Enable PE events and acknowledge stale token/finish status. */
+	pe_write(PE_REG_INTR_STATUS,
+		 PE_TOKEN_ENABLE | PE_FINISH_ENABLE |
+		 PE_TOKEN_BIT | PE_FINISH_BIT);
 
 	/* Redirect wgPipe DMA bursts to our zeroed buffer (was addr 0 in mini) */
 	iowrite32be(fifo_phys, pi_regs + PI_REG_FIFO_WPTR);

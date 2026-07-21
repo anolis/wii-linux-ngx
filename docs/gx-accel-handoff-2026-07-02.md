@@ -2916,6 +2916,38 @@ control succeeds. The next diagnostic will use libogc's independent draw-sync
 token path (`BP 0x48`, then `BP 0x47`) and verify both token status and the
 token-value register at `PE+0x0e`.
 
+### Draw-sync token positive control
+
+This test keeps the solid-green copy-clear command stream and appends libogc's
+exact `GX_SetDrawSync()` sequence after the existing `BP 0x45` command:
+
+```text
+BP 0x48 = per-frame 16-bit token
+BP 0x47 = the same per-frame token
+```
+
+PE token and finish signalling are enabled while their Flipper PIC lines stay
+masked. The poll now waits for either PE token-status bit 2 or the new per-frame
+token value at PE word index 7 (`PE+0x0e`). A different token is used each
+frame so stale state cannot pass the control. The first four frames log token
+status, finish status, actual token, expected token, and elapsed polling time.
+
+Success criterion: `token_status=1` and/or `token=expected` before 20 ms. That
+would validate an independently observable PE event path and prove the two
+draw-sync BP writes progressed downstream. If the token value advances while
+finish remains clear, the token path becomes the leading completion diagnostic
+for a split draw-then-copy primitive test. If neither changes, inspect the
+Flipper interrupt-cause register or service the events outside VI IRQ context
+before treating any PE status mechanism as trustworthy.
+
+Built image SHA-256:
+
+```text
+21e323a64f4ee5702033e71d6254136920d1ca7e217a4277310f882a6d6b6507
+```
+
+Expected visual result: unchanged solid green.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
