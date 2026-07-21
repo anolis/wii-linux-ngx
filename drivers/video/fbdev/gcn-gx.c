@@ -954,16 +954,11 @@ static void gx_setup_texture_rgb565(void *tile_buf, u16 width, u16 height)
 	/* BP 0x94 texImage3: physical address >> 5 */
 	gx_load_bp_reg(0x94000000 | ((phys >> 5) & 0x00ffffff));
 
-	/*
-	 * BP 0x66: texture cache invalidate (BPMEM_TX_INVALIDATE).
-	 * The TMU caches texture data fetched from main memory.  Without this,
-	 * the GP serves stale data on every frame after the first — the cache
-	 * holds the initial texture and ignores subsequent writes to the same
-	 * physical address even after a CPU dcache flush.  Sent twice as
-	 * libogc does (GX_InvalidateTexAll writes it twice for reliability).
-	 */
-	gx_load_bp_reg(0x66000000);
-	gx_load_bp_reg(0x66000000);
+	/* Exact libogc GX_InvalidateTexAll() sequence. */
+	gx_load_bp_reg(0x0F000000);
+	gx_load_bp_reg(0x66001000);
+	gx_load_bp_reg(0x66001100);
+	gx_load_bp_reg(0x0F000000);
 
 	/* BP 0x30/0x31 suSsize/suTsize for texcoord 0:
 	 * [15:0] = texture dimension - 1 (normalises vertex UV to [0,1])

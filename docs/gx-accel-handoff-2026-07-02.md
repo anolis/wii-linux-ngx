@@ -4649,6 +4649,37 @@ flush again. Stale or partially invalidated TMEM is consistent with green,
 sharp, and blurry results from the same main-memory texture stream. Test that
 exact four-command sequence before adding VI readback or changing filtering.
 
+### Match libogc's complete texture-cache invalidation
+
+The active test replaces the incorrect pair of `0x66000000` writes with
+libogc's exact `GX_InvalidateTexAll()` command sequence:
+
+```text
+BP 0x0F = 0x000000
+BP 0x66 = 0x001000
+BP 0x66 = 0x001100
+BP 0x0F = 0x000000
+```
+
+The first and last writes are libogc's `__GX_FlushTextureState()` with the
+zero indirect-texture mask. The two BP 0x66 payloads are the actual full-cache
+invalidate commands. The preceding code's claim that two zero-payload writes
+matched libogc was factually wrong. No texture mode/filter, TMEM region, vertex,
+copy, worker, XFB, or VI value changes in this image.
+
+Built image SHA-256:
+
+```text
+37244facf4f73cf324b435e28c5fd57ff2e28edff03977d43bfc5bfb4229ef47
+```
+
+Validity still requires the initial token/FIFO drains, alternating XFB
+presentations, and continued worker milestones. Because the previous checksum
+intermittently produced dark green, sharp, and blurry output, success requires
+at least three consecutive sharp and responsive console boots. Any green seed
+that persists after live submissions or any blurry console is a failure of
+this cache-invalidation hypothesis.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
