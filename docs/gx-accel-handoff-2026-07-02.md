@@ -3061,9 +3061,37 @@ Built image SHA-256:
 
 Expected visual result: unchanged solid green.
 
+### Correct stage-0 TEV order register
+
+Reviewing Dolphin's `BPMemory.h` exposed a foundational register-address
+error: BP `0x25` is `BPMEM_RAS1_SS0` (indirect texture-coordinate scale), not
+the stage-0 TEV order register. `BPMEM_TREF`, which contains the paired TEV
+stage order entries, starts at BP `0x28`.
+
+This was independently confirmed in libogc. `GX_Init()` assigns BP addresses
+`0x25` through `0x2f` to the eleven-element `tevRasOrder[]` backing array, but
+`GX_SetTevOrder()` deliberately selects `reg = 3 + (stage >> 1)`. Stage 0
+therefore writes array entry 3, BP `0x28`. The earlier project conclusion that
+array entry 0 represented stage 0 was incorrect.
+
+The active asynchronous direct-colour diagnostic now changes only its claimed
+stage-0 order write from `BP 0x25 = 0` to `BP 0x28 = 0`: texture sampling
+disabled and raster channel 0 selected. The validated green copy controls,
+direct RGBA8 red quad, real PE-finish IRQ boundary, and delayed EFB readout are
+unchanged. A red final display means the stale/unknown BP `0x28` state was the
+reason all prior primitives were invisible; green means this real register bug
+was not sufficient by itself.
+
+Built image SHA-256:
+
+```text
+1fbcea946af61d4355f39fd9f3a89d2bfff9cd489cb05d64556dbea8eb9ffcae
+```
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
+- `https://github.com/dolphin-emu/dolphin/blob/master/Source/Core/VideoCommon/BPMemory.h`
 - `https://hitmen.c02.at/files/yagcd/yagcd/chap5.html#sec5.2`
 
 ---
@@ -3091,7 +3119,9 @@ Primary references:
 - `COPY_CTRL_CLEAR` (BP 0x52 bit 11) clears EFB **after** the copy, not before.
 - XF 0x1040 bit[0]=1 (projection=STQ) requires 3 valid matrix rows; with only 2 rows
   loaded the Q component is garbage → perspective divide stall.  Use 0x200 (bit0=0).
-- raschan in BP 0x25 bits[9:7] must be 7 (GX_COLOR_NULL) when numcolchans=0.
+- Stage-0 TEV order is BP `0x28`, not BP `0x25`. BP `0x25` is indirect
+  texture-coordinate scale. The old BP `0x25` stage-order finding is retracted.
+- raschan in BP 0x28 bits[9:7] must be 7 (GX_COLOR_NULL) when numcolchans=0.
 - `pos=320/352` may not change when adding small BP commands due to 32-byte alignment padding.
 - suSsize (BP 0x30) and suTsize (BP 0x31) must be set even when texenable=0 — the SU
   uses them for LOD gradient computation regardless of whether the TMU fetches the texture.

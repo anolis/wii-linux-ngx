@@ -832,7 +832,7 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	/* TEV stage 0 = rasterized vertex colour/alpha (GX_PASSCLR). */
 	gx_load_bp_reg(0xC008FFFA);
 	gx_load_bp_reg(0xC108FFF5);
-	gx_load_bp_reg(0x25000000);
+	gx_load_bp_reg(0x28000000);
 	gx_load_bp_reg(0x30000000 | (u32)(width - 1));
 	gx_load_bp_reg(0x31000000 | (u32)(height - 1));
 
