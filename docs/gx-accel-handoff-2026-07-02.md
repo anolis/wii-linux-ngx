@@ -3655,6 +3655,33 @@ prove the generated path is operational with this fix; green will expose an
 additional generated-state difference, with BP 0x28 and TEV KSEL/swap values the
 next strongest candidates.
 
+### Test generated direct-color path with corrected scissor offset
+
+This build stops using the captured frame for the active test and restores the
+driver's generated `gx_setup_vertex_color_state()` plus
+`gx_draw_color_quad()` path. Its BP 0x59 write is corrected from
+`0x59000000` to libogc-equivalent `0x5902acab`; no other generated-state value is
+changed, so known differences such as BP 0x28 and TEV KSEL/swap upper fields
+remain available as follow-up variables.
+
+The draw and readout are separate PE-fenced submissions. After the two green
+controls, the driver submits generated state, a direct RGBA8 red quad, and BP
+0x45. A later VI callback observes the draw's PE-finish IRQ before submitting
+the EFB-to-XFB copy-clear. This prevents a premature copy from hiding a valid
+primitive.
+
+Built image SHA-256:
+
+```text
+ca39cf9b3d43b925f981788b05ffa64bcc002105d919cad1cf02cb2ae2f4d0cb
+```
+
+Validity requires 640x480 mode, a generated `draw` submission at
+`WT=01a0 pos=416` with complete drain and finish observation, followed by a
+`copy` submission at `WT=0060 pos=96` with complete drain. Red proves the
+corrected BP 0x59 encoding is sufficient to revive the generated direct-color
+path. Green means at least one additional generated-state difference remains.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`

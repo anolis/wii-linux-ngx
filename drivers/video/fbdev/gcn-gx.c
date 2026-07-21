@@ -76,6 +76,7 @@ enum gx_finish_diag_phase {
 	GX_DIAG_WAIT_SEED,
 	GX_DIAG_WAIT_GREEN,
 	GX_DIAG_WAIT_DRAW,
+	GX_DIAG_WAIT_COPY,
 	GX_DIAG_DONE,
 };
 
@@ -824,7 +825,8 @@ static void gx_setup_vertex_color_state(u16 width, u16 height)
 	gx_load_bp_reg(0x21000000 |
 		       (((xo + width - 1) & 0x7ff) << 12) |
 		       ((yo + height - 1) & 0xfff));
-	gx_load_bp_reg(0x59000000);
+	/* GX_SetScissorBoxOffset(0, 0): hardware stores (axis + 342) >> 1. */
+	gx_load_bp_reg(0x5902ACAB);
 
 	/* TEV stage 0 = rasterized vertex colour/alpha (GX_PASSCLR). */
 	gx_load_bp_reg(0xC008FFFA);
@@ -1432,20 +1434,32 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	case GX_DIAG_WAIT_GREEN:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: green seed complete; replaying libogc red frame\n");
+		pr_info("gcn-gx: green seed complete; submitting generated red draw\n");
 		gx_diag_finish_baseline = finish_count;
 		fifo_pos = 0;
-		/* Reproduce the driver's historical, incorrectly encoded offset. */
-		gx_load_bp_reg(0x59000000);
-		gx_load_reference_red_frame(xfb_phys, width, height);
-		gx_submit_cmds("replay");
+		gx_setup_vertex_color_state(width, height);
+		gx_draw_color_quad(width, height, 0xff, 0x00, 0x00);
+		gx_load_bp_reg(0x45000002);
+		gx_submit_cmds("draw");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;
 		break;
 
 	case GX_DIAG_WAIT_DRAW:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: libogc replay PE finish observed\n");
+		pr_info("gcn-gx: generated draw PE finish observed; copying EFB\n");
+		gx_diag_finish_baseline = finish_count;
+		fifo_pos = 0;
+		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
+		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
+		gx_submit_cmds("copy");
+		gx_diag_phase = GX_DIAG_WAIT_COPY;
+		break;
+
+	case GX_DIAG_WAIT_COPY:
+		if (finish_count == gx_diag_finish_baseline)
+			break;
+		pr_info("gcn-gx: generated draw readout complete\n");
 		gx_diag_phase = GX_DIAG_DONE;
 		break;
 
