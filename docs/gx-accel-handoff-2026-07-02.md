@@ -4283,6 +4283,15 @@ and complete drain. Red rules out the generated Z-translation value. Green
 identifies this exact projection word as necessary for primitive visibility and
 directly motivates correcting the generated projection helper.
 
+Hardware result: **solid green.** The fresh log validates the unique
+projection-Z test markers, `projz WT=0240 pos=576`, token `0x0003` after 410
+microseconds, the third PE-finish IRQ, and complete drain to
+`RDoff=WToff=0x0240`. Changing only `XF 0x1025` from the proven frame's `-1.0`
+to the generated path's `0.0` is sufficient to suppress the otherwise proven
+red primitive. This identifies the projection Z-translation word as a real
+generated-path blocker; correct the generated orthographic projection to emit
+`-1.0` before returning to that path.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
