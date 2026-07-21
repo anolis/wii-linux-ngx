@@ -94,6 +94,7 @@ struct gx_rgb565_work {
 static struct gx_rgb565_work gx_rgb565_work;
 static DEFINE_SPINLOCK(gx_rgb565_work_lock);
 static u32 gx_rgb565_work_runs;
+static bool gx_rgb565_boot_deferred;
 
 static inline u16 pe_read(int reg)
 {
@@ -1540,6 +1541,19 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 {
 	unsigned long flags;
 
+	/* Do not contend with built-in driver init on this single-core system. */
+	if (system_state != SYSTEM_RUNNING) {
+		if (!gx_rgb565_boot_deferred) {
+			gx_rgb565_boot_deferred = true;
+			pr_info("gcn-gx: deferring RGB565 worker until SYSTEM_RUNNING\n");
+		}
+		return;
+	}
+	if (gx_rgb565_boot_deferred) {
+		gx_rgb565_boot_deferred = false;
+		pr_info("gcn-gx: SYSTEM_RUNNING; enabling RGB565 worker\n");
+	}
+
 	spin_lock_irqsave(&gx_rgb565_work_lock, flags);
 	gx_rgb565_work.vfb = vfb;
 	gx_rgb565_work.xfb_phys = xfb_phys;
@@ -1654,6 +1668,7 @@ int gcn_gx_init(void)
 	INIT_WORK(&gx_rgb565_work.work, gx_rgb565_workfn);
 	gx_rgb565_work.vfb = NULL;
 	gx_rgb565_work_runs = 0;
+	gx_rgb565_boot_deferred = false;
 	gx_diag_phase = GX_DIAG_SEED;
 	gx_diag_finish_baseline = 0;
 	pr_info("gcn-gx: init: tex_buf phys=0x%08x virt=%p\n",

@@ -4475,6 +4475,29 @@ single-XFB behavior unchanged. If that removes the EHCI diagnostics, boot-time
 driver initialization is a required scheduling boundary. The blur separately
 motivates vblank presentation to a back XFB after worker rendering is stable.
 
+### Gate deferred GX rendering on completed kernel initialization
+
+The active test adds only a boot-state gate to the preceding workqueue image.
+VI callbacks return without queueing GX work while `system_state` is
+`SYSTEM_BOOTING`. The first callback after `kernel_init()` has completed all
+built-in and asynchronous init work, freed init memory, and set
+`SYSTEM_RUNNING` starts the unchanged seed/green/live worker sequence.
+
+Expected markers are one `deferring RGB565 worker until SYSTEM_RUNNING` line
+during framebuffer probe and one `SYSTEM_RUNNING; enabling RGB565 worker` line
+after all built-in driver probes. No GX seed or live submission may overlap the
+EHCI probe. The existing worker-run and FIFO/token/drain criteria remain
+unchanged. A clean test must contain neither the EHCI `spinlock bad magic`
+failure nor its address-zero DMA-debug warning. This isolates boot ordering; it
+does not attempt to fix the known blur from copying into the visible XFB outside
+vertical retrace.
+
+Built image SHA-256:
+
+```text
+bbf7629e619aa6abefb44a2681373b2974bee77998e08c811f1006791797f991
+```
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
