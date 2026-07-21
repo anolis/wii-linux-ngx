@@ -64,6 +64,16 @@ static void *gx_tex_buf;
 static bool gx_log_next_submit;
 static u32 gx_current_frame;
 
+static inline u16 pe_read(int reg)
+{
+	return in_be16(pe_regs + reg);
+}
+
+static inline void pe_write(int reg, u16 val)
+{
+	out_be16(pe_regs + reg, val);
+}
+
 /* Set to true after successful gcn_gx_init(); guards vsync path */
 bool gx_accel_ready;
 EXPORT_SYMBOL_GPL(gx_accel_ready);
@@ -1000,6 +1010,8 @@ static void gx_submit_cmds(void)
 	u32 phys_end   = phys_start + GX_FIFO_SIZE - 4;
 	u32 phys_wt;
 	u32 cp_rd, cp_wt;
+	u16 pe_status;
+	int pe_timeout;
 	int timeout;
 
 	/* Pad to 32-byte boundary (GP DMA requires 32-byte alignment) */
@@ -1032,15 +1044,36 @@ static void gx_submit_cmds(void)
 			log_frame, cp_read(CP_REG_STATUS), 0,
 			phys_wt - phys_start, fifo_pos);
 
-	out_be16(pe_regs + PE_REG_CTRL_STAT, 0x0003);
+	/* Clear any stale finish status; leave PE token/finish IRQs disabled. */
+	pe_write(PE_REG_INTR_STATUS, PE_FINISH_BIT);
 	cp_write(CP_REG_CTRL, CP_CR_GPRESET | CP_CR_LINKEN);
 
 	/*
-	 * DIAGNOSTIC: give the raster/PE backend much longer to drain.  The
-	 * first hard stall lands inside the vertex payload after ~14 frames,
-	 * which points at backend back-pressure rather than a malformed FIFO.
+	 * Positive control for PE completion. BP 0x45 follows the known-good
+	 * copy-clear command, so finish must latch at PE+0x0a if the register
+	 * mapping and draw-done mechanism are correct. A PE interrupt cannot be
+	 * serviced while this VI interrupt handler is running, hence polling.
 	 */
-	udelay(10000);
+	pe_timeout = 2000;
+	do {
+		pe_status = pe_read(PE_REG_INTR_STATUS);
+		if (pe_status & PE_FINISH_BIT)
+			break;
+		udelay(10);
+	} while (--pe_timeout);
+
+	if (pe_status & PE_FINISH_BIT) {
+		/* Preserve enable bits and acknowledge only the finish status. */
+		pe_write(PE_REG_INTR_STATUS,
+			 (pe_status & 0x0003) | PE_FINISH_BIT);
+	} else {
+		pr_warn_once("gcn-gx: PE finish positive control timed out (PE=%04x)\n",
+			     pe_status);
+	}
+	if (do_log)
+		pr_info("gcn-gx: f%u PE finish=%u wait_us=%u status=%04x\n",
+			log_frame, !!(pe_status & PE_FINISH_BIT),
+			(2000 - pe_timeout) * 10, pe_status);
 
 	/* Read back RD after delay: confirms GP consumed commands */
 	cp_rd = ((u32)cp_read(CP_REG_RD_HI) << 16) |
@@ -1197,6 +1230,9 @@ int gcn_gx_init(void)
 	cp_regs = (u16 __iomem *)(hw_base + GX_CP_OFFSET);
 	pe_regs = (u16 __iomem *)(hw_base + GX_PE_OFFSET);
 	pi_regs = (u32 __iomem *)(hw_base + 0x3000);
+
+	/* Disable PE interrupts and acknowledge stale token/finish status. */
+	pe_write(PE_REG_INTR_STATUS, 0x000c);
 
 	/* Redirect wgPipe DMA bursts to our zeroed buffer (was addr 0 in mini) */
 	iowrite32be(fifo_phys, pi_regs + PI_REG_FIFO_WPTR);

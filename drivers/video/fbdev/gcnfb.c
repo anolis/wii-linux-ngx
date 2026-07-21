@@ -1382,42 +1382,6 @@ static void vi_transcode_RGB565_diff(struct vi_ctl *ctl)
 	}
 }
 
-static void vi_fill_yuyv_red_diag(struct vi_ctl *ctl)
-{
-	struct fb_info *info = ctl->info;
-	u32 pattern = rgbrgb16toycbycr(0xf800f800);
-	u32 *dst = fb_mem;
-	unsigned int width = info->fix.line_length >> 2;
-	unsigned int height = info->var.yres;
-	unsigned int y;
-
-	for (y = 0; y < height; y++) {
-		unsigned int x;
-
-		for (x = 0; x < width; x++)
-			dst[x] = pattern;
-		dst += width;
-	}
-	mb();
-}
-
-static void vi_gx_then_delayed_cpu_red_diag(struct vi_ctl *ctl)
-{
-	static u32 frame_count;
-	struct fb_info *info = ctl->info;
-	u32 frame = frame_count++;
-
-	gcn_gx_blit_fb_rgb565(vfb_mem, (u32)gx_fb_start,
-			      info->var.xres, info->var.yres);
-
-	/* Leave the first 300 refreshes GX-only, then mark CPU output in red. */
-	if (frame < 300)
-		return;
-	if (frame == 300)
-		pr_info("gcnfb: enabling delayed CPU red fill\n");
-	vi_fill_yuyv_red_diag(ctl);
-}
-
 static void vi_transcode_RGB888(struct vi_ctl *ctl)
 {
 	/* Copy and convert contents of virtual framebuffer,
@@ -1513,7 +1477,10 @@ static irqreturn_t vi_irq_handler(int irq, void *dev)
 				break;
 				case V4L2_PIX_FMT_RGB565:
 					if (gx_accel_ready)
-						vi_gx_then_delayed_cpu_red_diag(ctl);
+						gcn_gx_blit_fb_rgb565(vfb_mem,
+							(u32)gx_fb_start,
+							info->var.xres,
+							info->var.yres);
 					else
 						vi_transcode_RGB565(ctl);
 					break;
