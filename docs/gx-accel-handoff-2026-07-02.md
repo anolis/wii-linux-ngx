@@ -3799,6 +3799,24 @@ and finish IRQ, and complete drain. Green proves these generated-only SU-size
 writes suppress the otherwise valid primitive. Red rules them out and moves the
 challenge method to the generated matrix-index/extra-texture-matrix group.
 
+Hardware result: **red with the same narrow green sliver at the left edge as the
+unchallenged positive control.** The fresh log validates 640x480 mode,
+`susize WT=0260 pos=608`, expected token, PE-finish IRQ, and complete drain to
+`RDoff=WToff=0x0260`. BP 0x30/0x31 are harmless for this zero-texgen draw and are
+ruled out as the generated failure.
+
+A numeric audit found that generated `f32_div_u16(2,640)` and `(2,480)` truncate
+to projection words `0x3b4ccccc` and `0x3b888888`, one ULP below libogc's rounded
+`0x3b4ccccd` and `0x3b888889`. This is a real precision bug to fix before final
+driver work, but it shifts edges inward by far below one pixel and is not a
+credible explanation for a completely green 640x480 frame.
+
+Next challenge the proven frame with the generated TEV paired-register payloads:
+BP 0x28=`0`, BP 0xf6=`4`, and BP 0xf7=`0x0e`. These preserve the active stage-0
+order and swap selectors but clear paired unused-stage/KSEL fields. Red confirms
+those inactive differences are harmless; green shows hardware depends on one of
+the supposedly inactive preserved fields.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
