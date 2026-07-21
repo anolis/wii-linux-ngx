@@ -2897,6 +2897,25 @@ be141e82d1ba37851c196919d9aef1cd59acac83d7f493abf222b37ffbe522b3
 
 Expected visual result: unchanged solid green.
 
+Hardware result: **solid green; finish status still did not latch.** The enable
+bit itself read back correctly as `PE=0002`, proving that the corrected MMIO
+register is writable, but bit 3 remained clear for all four 20 ms windows:
+
+```text
+gcn-gx: PE finish positive control timed out (PE=0002)
+gcn-gx: f0 PE finish=0 wait_us=20000 status=0002
+gcn-gx: f1 PE finish=0 wait_us=20000 status=0002
+gcn-gx: f2 PE finish=0 wait_us=20000 status=0002
+gcn-gx: f3 PE finish=0 wait_us=20000 status=0002
+```
+
+Each corresponding FIFO still drained to `RDoff=0040 WToff=0040` with
+`SR=000c`. This rules out disabled finish signalling as the explanation. PE
+finish polling remains an invalid completion mechanism until a positive
+control succeeds. The next diagnostic will use libogc's independent draw-sync
+token path (`BP 0x48`, then `BP 0x47`) and verify both token status and the
+token-value register at `PE+0x0e`.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
@@ -2916,7 +2935,8 @@ Primary references:
 - PE interrupt status is word index 5, byte offset `0x0a` from PE base. The old
   word-index-0/byte-offset-`0x00` definition was incorrect.
 - Do not block waiting for a PE IRQ handler from the VI IRQ handler. Polling the
-  latched PE-finish status is under positive-control test as of 2026-07-21.
+  latched PE-finish status failed positive controls both with finish signalling
+  disabled (`PE=0000`) and enabled (`PE=0002`); do not treat it as a fence.
 - **BP 0x65 is `TX_LOADTLUT1` (texture LUT load config), not `PE_DONE`** -- this was
   wrongly documented as the draw-done fence throughout this project until 2026-07-09.
   The real `PE_DONE` register is **BP 0x45** (`0x00000002`, matching libogc's
