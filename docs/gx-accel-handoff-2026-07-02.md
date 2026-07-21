@@ -2746,6 +2746,29 @@ Built and checksum-verified on the SD card at `gumboot/zImage.ngx`:
 Expected hardware result: a stable, uniform green display.  Record the visual
 result before introducing the next single-variable primitive test.
 
+Observed result on 2026-07-20: the display initially alternated between full
+green and full black, then stopped flickering and remained green around the
+time the boot diagnostics wrote to the SD card.  Inspection found a confound
+outside `gcn-gx.c`: the RGB565 IRQ path still called
+`vi_gx_then_cpu_fill_green_diag()`, which performed a CPU YUYV green fill after
+every GX call except the first.  Therefore the eventual stable green cannot be
+credited to repeated GX copy-clear, and the initial flicker cannot be cleanly
+separated from the CPU/GX overwrite race.
+
+The next build removes the old immediate green CPU fallback and its unreliable
+pixel sampling.  For the first 300 refreshes (about five seconds), `gcnfb.c`
+runs only the unchanged repeated GX green copy-clear path.  Starting at frame
+300, it performs a CPU YUYV **red** fill after every GX call.  This separates
+the writers by both time and color: green or green/black during the first
+interval is GX behavior, while stable red afterward positively identifies the
+CPU writer and provides an unmistakable transition marker.
+
+Built image SHA-256 (pending deployment):
+
+```text
+2d115b2a3a5dafa379fdf2c691752730f9539fa1e9b3aacb861b3355d94ea603
+```
+
 ---
 
 ## Known pitfalls
