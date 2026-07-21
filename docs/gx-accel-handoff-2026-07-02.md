@@ -4292,6 +4292,30 @@ red primitive. This identifies the projection Z-translation word as a real
 generated-path blocker; correct the generated orthographic projection to emit
 `-1.0` before returning to that path.
 
+### Retest the generated path with corrected projection Z
+
+The active diagnostic returns to the generated-only contiguous `drawcopy`
+topology that previously produced solid green: generated direct-colour setup,
+red RGBA8 quad, BP 0x45, 32 NOPs, green copy-clear state, and clear-enabled
+EFB-to-XFB copy in one submission. Captured FIFO bytes are not used.
+
+The only generated-state correction is projection word `XF 0x1025`, changed
+from `0x00000000` to the proven frame's `0xbf800000` (`-1.0`). This directly
+tests the blocker isolated by the preceding one-word challenge without adding
+the ruled-out late vertex-state tail or changing any other draw/copy state.
+
+Built image SHA-256:
+
+```text
+d0c032659fd26ab11874ca38c43dfde511dae8de41cf1bae2e77c2d1c2230b83
+```
+
+Validity requires `drawcopy WT=0220 pos=544`, token `0x0003`, third PE-finish
+IRQ, and complete drain. Red proves the driver-generated direct-colour path is
+operational and closes the primitive-rendering reverse-engineering phase.
+Green means the projection fix is necessary but a second generated-path blocker
+remains.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
