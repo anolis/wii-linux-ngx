@@ -3543,6 +3543,29 @@ proves the validated libogc stream works on hardware. Green with a complete
 still differs. Any other mode or byte count must be treated as another apparatus
 failure rather than a GX result.
 
+Hardware result: **solid red.** The fresh log satisfies every validity check:
+
+```text
+gcn-vifb: mode is 640x480x16
+gcn-gx: f2 replay pre:  ... WT=0320 pos=800
+gcn-gx: f2 replay PE ... token=0003 expected=0003
+gcn-gx: f2 replay post: ... RDoff=0320 WToff=0320
+gcn-gx: libogc replay PE finish observed
+```
+
+This is the first definitive primitive-render success on Wii Linux. The CP
+consumed the complete stream, the PE observed its markers, the red quad visibly
+replaced the green clear, and the final EFB-to-XFB copy displayed it correctly.
+The GX hardware, direct MEM1 FIFO submission, corrected PI mapping, primitive
+encoding, raster pipeline, and display copy path are therefore all operational.
+
+Next isolate whether the 206-byte one-time libogc preamble is required: retain
+the exact 564-byte frame and 640x480 mode but omit only
+`gx_load_libogc_init_preamble()`. The expected padded submission becomes 576
+bytes (`0x0240`, including the driver's token marker). Red means the required
+state is wholly inside the captured frame; green means it is in the preamble and
+that 206-byte range can be bisected.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
