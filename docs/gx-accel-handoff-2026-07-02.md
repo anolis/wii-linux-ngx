@@ -3299,6 +3299,18 @@ discarded primitives. Green rules out this missing libogc initialization write
 and moves the differential to the other initial XF state, beginning with
 `XF 0x1012 = 1` and the channel-1 defaults.
 
+Hardware result: **solid green.** The libogc `XF 0x1000 = 0x3f` write did not
+make the red primitive visible. It is ruled out as an isolated fix.
+
+Do not continue testing DFF snapshot registers individually. The current DFF's
+204-byte frame is only a post-configuration delta, while its initial arrays do
+not preserve command order and cannot safely be replayed wholesale because
+some BP registers have side effects. The reference program should instead call
+its complete `configure_gx()` routine inside each frame before drawing. A new
+validated FIFO capture will then contain the exact ordered public libogc setup,
+primitive, fence, and copy sequence. Compare or replay that complete stream in
+Linux as one bounded control.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
