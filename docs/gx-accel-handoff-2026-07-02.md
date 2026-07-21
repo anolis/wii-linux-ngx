@@ -3936,6 +3936,32 @@ known one-ULP truncations: XF 0x1020 `0x3b4ccccd -> 0x3b4ccccc` and XF 0x1022
 but it is the smallest remaining exact mismatch and should be closed before
 testing larger omitted-state groups.
 
+### Challenge the proven frame with generated projection precision
+
+The active path restores the exact proven frame except for two four-byte
+projection payloads, patched in place to the values emitted by
+`f32_div_u16()`:
+
+```text
+frame 0x12a, XF 0x1020: 0x3b4ccccd -> 0x3b4ccccc
+frame 0x132, XF 0x1022: 0xbb888889 -> 0xbb888888
+```
+
+These are the generated `2/640` and `-2/480` projection coefficients. No
+command is added, removed, or reordered; the prior matrix-index B omissions are
+restored to the proven bytes.
+
+Built image SHA-256:
+
+```text
+1c73bc84e94cd8ea95e95a979177bf8def5f23d44ba13759e51ea877ecfac438
+```
+
+Validity requires `projulp WT=0240 pos=576`, expected token and finish IRQ, and
+complete drain. Red rules out these precision differences as expected. Green
+would show that even the one-ULP inward edge shift unexpectedly suppresses the
+primitive and would make rounding in `f32_div_u16()` the immediate fix.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`

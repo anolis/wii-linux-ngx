@@ -1338,10 +1338,8 @@ static const u8 gx_reference_red_frame[] = {
 
 #define GX_REFERENCE_FRAME_SIZE		564
 #define GX_REFERENCE_XFB_ADDR_OFFSET	0x22c
-#define GX_REFERENCE_CP_MTXIDX_B_CMD_OFFSET	0x1a5
-#define GX_REFERENCE_CP_MTXIDX_B_CMD_SIZE	6
-#define GX_REFERENCE_XF_MTXIDX_B_CMD_OFFSET	0x1ab
-#define GX_REFERENCE_XF_MTXIDX_B_CMD_SIZE	9
+#define GX_REFERENCE_PROJECTION_A_OFFSET	0x12a
+#define GX_REFERENCE_PROJECTION_C_OFFSET	0x132
 
 static void gx_load_libogc_init_preamble(void)
 {
@@ -1397,11 +1395,15 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 
 	memcpy(fifo + start, gx_reference_red_frame,
 	       sizeof(gx_reference_red_frame));
-	/* The generated helper omits matrix-index B; replace both loads with NOPs. */
-	memset(fifo + start + GX_REFERENCE_CP_MTXIDX_B_CMD_OFFSET, 0,
-	       GX_REFERENCE_CP_MTXIDX_B_CMD_SIZE);
-	memset(fifo + start + GX_REFERENCE_XF_MTXIDX_B_CMD_OFFSET, 0,
-	       GX_REFERENCE_XF_MTXIDX_B_CMD_SIZE);
+	/* Challenge with f32_div_u16()'s one-ULP-truncated projection values. */
+	fifo[start + GX_REFERENCE_PROJECTION_A_OFFSET + 0] = 0x3b;
+	fifo[start + GX_REFERENCE_PROJECTION_A_OFFSET + 1] = 0x4c;
+	fifo[start + GX_REFERENCE_PROJECTION_A_OFFSET + 2] = 0xcc;
+	fifo[start + GX_REFERENCE_PROJECTION_A_OFFSET + 3] = 0xcc;
+	fifo[start + GX_REFERENCE_PROJECTION_C_OFFSET + 0] = 0xbb;
+	fifo[start + GX_REFERENCE_PROJECTION_C_OFFSET + 1] = 0x88;
+	fifo[start + GX_REFERENCE_PROJECTION_C_OFFSET + 2] = 0x88;
+	fifo[start + GX_REFERENCE_PROJECTION_C_OFFSET + 3] = 0x88;
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 0] = copy_addr >> 16;
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 1] = copy_addr >> 8;
 	fifo[start + GX_REFERENCE_XFB_ADDR_OFFSET + 2] = copy_addr;
@@ -1448,18 +1450,18 @@ void gcn_gx_blit_fb_rgb565(const void *vfb, u32 xfb_phys, u16 width, u16 height)
 	case GX_DIAG_WAIT_GREEN:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: green seed complete; omitting red frame matrix-index B\n");
+		pr_info("gcn-gx: green seed complete; challenging projection ULPs\n");
 		gx_diag_finish_baseline = finish_count;
 		fifo_pos = 0;
 		gx_load_reference_red_frame(xfb_phys, width, height);
-		gx_submit_cmds("nomtxb");
+		gx_submit_cmds("projulp");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;
 		break;
 
 	case GX_DIAG_WAIT_DRAW:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: matrix-index B omission PE finish observed\n");
+		pr_info("gcn-gx: projection-ULP challenge PE finish observed\n");
 		gx_diag_phase = GX_DIAG_DONE;
 		break;
 
