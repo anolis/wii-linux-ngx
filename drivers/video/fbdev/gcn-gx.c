@@ -928,10 +928,10 @@ static void gx_setup_texture_rgb565(void *tile_buf, u16 width, u16 height)
 	u32 img0;
 
 	/*
-	 * BP 0x80 texMode0: libogc GX_InitTexObj non-mipmap default with
-	 * wrap_s/wrap_t=CLAMP, mag filter bit set, and non-mipmap min filter.
+	 * BP 0x80 texMode0: use nearest magnification for a 1:1 framebuffer
+	 * copy; retain libogc's CLAMP wrapping and non-mipmap min filter.
 	 */
-	gx_load_bp_reg(0x80000090);
+	gx_load_bp_reg(0x80000080);
 
 	/* BP 0x84 texMode1: LOD disabled */
 	gx_load_bp_reg(0x84000000);

@@ -4952,6 +4952,28 @@ changing BP 0x80 from `0x80000090` (linear) to `0x80000080` (nearest). That
 one-bit test was proposed before the TMEM-bank correction but never executed
 against the now-working `0x900dc000` RGB565 region.
 
+### Use nearest magnification for the 1:1 framebuffer texture
+
+The active test reverts the failed `progressive` boot option to restore the
+known NTSC 480i baseline, then changes only texMode0's magnification-filter bit:
+BP 0x80 moves from `0x80000090` (linear) to `0x80000080` (nearest). Clamp
+wrapping, the non-mipmap minification mode, corrected RGB565 odd TMEM bank,
+full texture-cache invalidation, tiling, TEV, geometry, display copy, XFB
+ownership, and worker scheduling remain unchanged.
+
+Built image SHA-256:
+
+```text
+a864d7946e2bc6c0571049a5be38dfb704fb5a094278e111996731f53f5fbc60
+```
+
+The log must return to `force_scan=0` and `NTSC 480i`, with seed `WT=0080`,
+green `WT=0060`, live `WT=02c0`, successful PE tokens, complete FIFO drains,
+alternating XFB pages, and continued worker milestones. Test at least three
+boots. Consistently sharp and responsive text validates nearest sampling for
+the 1:1 framebuffer path. Any green, repeated, malformed, or blurry result
+means the magnification bit is not sufficient and must be reported separately.
+
 ---
 
 ## Known pitfalls
