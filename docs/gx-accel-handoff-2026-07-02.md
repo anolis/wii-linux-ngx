@@ -5049,6 +5049,36 @@ minification, and disabled edge LOD, while Linux currently emits `0x000080`
 clear). Change only that register before revisiting broader matrix-index or
 TEV defaults.
 
+### Match libogc's complete nearest texture mode
+
+The active test keeps the capture-verified XF 0x1050=`0x3d`, corrected RGB565
+odd TMEM bank, complete texture-cache invalidation, tiling, TEV, geometry,
+display copy, XFB ownership, VI mode, and worker scheduling unchanged. It
+changes only BP 0x80 texMode0 from payload `0x000080` to `0x000100`.
+
+This is not another generic nearest-filter guess. The validated libogc
+RGB565-texture capture emits `0x000100` after an explicit
+`GX_InitTexObjLOD(..., GX_NEAR, GX_NEAR, ..., GX_DISABLE)` call. Dolphin's BP
+layout and libogc's register construction agree that the previous `0x000080`
+selected nearest magnification but retained linear minification and left the
+diagonal-LOD bit clear. The new value exactly matches the positive-control
+stream's nearest magnification, nearest minification, no-mipmap, edge-LOD-off
+state.
+
+Built image SHA-256:
+
+```text
+acac0e5f733620b331666d651241624487d3b96e7627052aaa19cdf0d274f300
+```
+
+Test five consecutive boots. Record each visual state in order, distinguishing
+clear, blurry, green, and repeated-column output. The kernel logs must retain
+NTSC 480i, seed `WT=0080`, green `WT=0060`, live `WT=02c0`, PE tokens 1
+through 4, complete FIFO drains, alternating XFB pages, and continued worker
+execution. Five clear, responsive consoles pass the correction. Any malformed
+boot means texMode0 was another real stream mismatch but is not sufficient to
+explain the remaining nondeterminism.
+
 ---
 
 ## Known pitfalls
