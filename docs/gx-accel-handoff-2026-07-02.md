@@ -4912,6 +4912,30 @@ option can pass its component-cable gate. The next controlled test should add
 only `progressive` to the `gcn-vifb` boot option and verify NTSC 480p selection,
 a clear stable console, and unchanged GX completion controls.
 
+### Force the existing NTSC 480p output path
+
+The active test adds only `progressive` to the device-tree command line,
+changing `video=gcn-vifb:tv=auto,nostalgic` to
+`video=gcn-vifb:tv=auto,nostalgic,progressive`. The prior four-boot diagnostic
+proved `VI_SEL` bit 0 is set, so the driver's existing cable gate should permit
+NTSC 480p. No driver implementation, GX command, texture state, display-copy
+state, XFB ownership, or framebuffer geometry changes in this image.
+
+Built image SHA-256:
+
+```text
+4905937e877ade497501fa1c4aee6f1604a66c77fa5f2f9526569d131d734ed1
+```
+
+The boot log must report `force_scan=2`, select `NTSC 480p`, and configure a
+non-interlaced 640x480 framebuffer. The GX controls must retain seed
+`WT=0080`, green `WT=0060`, live `WT=02c0`, successful PE tokens, complete
+FIFO drains, and continued worker milestones. Visually, run the exact image at
+least three times. A consistently clear and responsive console supports 480i
+or external deinterlacer lock as the remaining presentation problem. Loss of
+signal, malformed output, or continued blur rejects the current progressive
+path and requires reverting only this boot option.
+
 ---
 
 ## Known pitfalls
