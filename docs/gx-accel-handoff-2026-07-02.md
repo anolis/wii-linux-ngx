@@ -4725,6 +4725,42 @@ with the alternating XFB address. If the display remains stale, these values
 distinguish among an unwritten XFB, a VI register that failed to latch, and a
 failure after both memory and VI state are correct.
 
+Hardware result: **VI page programming passed, but the XFB sample mechanism
+failed its positive control and is not usable as pixel evidence.** The screen
+remained a visually uniform dark green. The first return of the card appeared
+to contain no fresh log because the ext3 root filesystem had journal and inode
+damage; an offline `e2fsck -f -y` recovered the appended kernel log and repaired
+the filesystem. The image on the boot partition still matched the deployed
+SHA-256 above exactly.
+
+The recovered first four readbacks were:
+
+```text
+diag 1 xfb=0172e000 TFBL=100b9700 BFBL=000b9728 XFB=b2a59247/a4a5bd3a/6493ca84
+diag 2 xfb=01698000 TFBL=100b4c00 BFBL=000b4c28 XFB=a296e35b/2f6e2f6a/eb67d481
+diag 3 xfb=0172e000 TFBL=100b9700 BFBL=000b9728 XFB=a296e35b/2f6e2f6a/eb67d481
+diag 4 xfb=01698000 TFBL=100b4c00 BFBL=000b4c28 XFB=a296e35b/2f6e2f6a/eb67d481
+```
+
+The TFBL/BFBL values decode to the exact requested top-field address and the
+corresponding one-line-offset bottom-field address for both alternating pages.
+This is a successful positive control for the VI register writes and rules out
+failure to program the selected page. By contrast, presentation 2's three XFB
+words are nonuniform despite the known uniform-green copy, and presentations
+2 through 4 return the same three words from different pages while the visual
+frame is uniform. This project has previously demonstrated false conclusions
+from sparse CPU XFB samples. Treat these words as a failed measurement, not as
+proof that the displayed page contains those pixels.
+
+The active generated path still leaves display-copy state inherited from Mini.
+In particular, the initial seed copies run before BP 0x43/0x44/0x68 and sample
+positions are initialized, while all copies omit BP 0x4e and BP 0x53/0x54.
+The next test should initialize that coherent display-copy group once before
+the first seed using the values from the independently proven libogc capture.
+This directly targets boot-to-boot persistence of green/sharp/blurry output
+without changing tiling, texture addressing, TEV, geometry, page ownership, or
+VI programming.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
