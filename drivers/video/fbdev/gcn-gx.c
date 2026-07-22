@@ -1516,8 +1516,8 @@ static void gx_submit_live_rgb565(const void *vfb, u32 xfb_phys,
 {
 	int i;
 
-	(void)vfb;
 	gx_fill_reference_rgb565((u16 *)gx_tex_buf, width, height);
+	gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
 	flush_dcache_range((unsigned long)gx_tex_buf,
 			   (unsigned long)gx_tex_buf +
 			   (unsigned long)width * height * 2);

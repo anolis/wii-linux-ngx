@@ -5283,6 +5283,34 @@ existing `gx_tile_rgb565()` before the unchanged cache flush and `WT=0300`
 submission. Stable console output implicates first-touch/cache state or timing.
 Return of green/columns implicates live source data or the second overwrite.
 
+### Prefill the texture buffer before restoring live console pixels
+
+This test keeps the deterministic reference generator from the successful
+pattern control, but uses it only as a full-buffer warm-up. Each frame first
+writes the complete four-quadrant reference pattern into `gx_tex_buf`, then
+immediately overwrites every 4x4 tile with the live fbcon RGB565 data through
+the original `gx_tile_rgb565()` path. The cache flush and the complete GX
+command stream remain unchanged, including expected live FIFO `WT=0300`.
+
+This preserves the reference build's full texture-memory first touch, cache
+population, and additional CPU work before submission while restoring the
+actual console bytes presented to GX. It changes no GX register, FIFO command,
+texture address, or synchronization behavior.
+
+Built image SHA-256:
+
+```text
+8b6bec7859aee84142d398b3cc8da7e00a26d2c0d67584c42ce896f07caf6479
+```
+
+Test five ordinary boots and report the ordered visual result of each boot.
+Stable live console output without green or repeated columns implicates texture
+buffer first-touch/cache state or the extra pre-submit CPU delay. Return of
+green, blur, or repeated columns implicates the live source data, concurrent
+fbcon updates, or the second full-buffer overwrite. Any persisted log should
+show the unchanged live FIFO endpoint `WT=0300`; visual results remain valid
+but must be explicitly labeled visual-only when no fresh log persists.
+
 ---
 
 ## Known pitfalls
