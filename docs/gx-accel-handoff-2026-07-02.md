@@ -5141,6 +5141,23 @@ pages, and continued worker execution. Five clear, responsive consoles pass
 the missing-matrix correction. Any green, blurry, or repeated-column boot means
 another inherited state remains relevant.
 
+Hardware result: **the missing matrix initialization is correct but not a
+stability fix.** Five consecutive boots again produced the exact visual
+sequence green, clear, clear, clear, clear. This is identical to the preceding
+texMode0 image's sequence. Only the final boot persisted a fresh kernel log;
+it corresponds to clear output and validates the new live `WT=02e0`, PE tokens
+1 through 4, complete `RDoff=WToff` drains, and continued worker execution.
+The green boot remains visual evidence only.
+
+Keep the explicit XF `0x05f4..0x05ff` identity load because Linux must not
+select an undefined inherited post-transform matrix, but do not attribute the
+four clear boots to it. Two successive images now reproduce green on the first
+boot followed by four clear boots. Stop changing GX state until the operational
+variable is isolated: test this exact checksum across fully cold AC-disconnected
+power-ons separately from software/reset-button warm reboots. If cold boots are
+green and warm boots are clear, the remaining defect is inherited startup or
+takeover state rather than random per-frame command behavior.
+
 ---
 
 ## Known pitfalls
