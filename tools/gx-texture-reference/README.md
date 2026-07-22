@@ -29,3 +29,12 @@ Decode the capture with the sibling reference tool:
 ```sh
 ../gx-fifo-reference/decode_dff.py reference-rgb565-texture.dff
 ```
+
+`reference-rgb565-texture.dff` is the validated one-frame capture from this
+program. Both the live DOL and FIFO Player render the same four-quadrant grid.
+The capture contains 679 FIFO bytes and one texture-memory update. Its SHA-256
+is:
+
+```text
+df9d2ee358b625886d0fd76ffe60f2c5e4b48f5aaed095a9c0d4062c70bea09c
+```
