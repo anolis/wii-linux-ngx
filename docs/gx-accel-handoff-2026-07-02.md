@@ -4896,6 +4896,22 @@ mode because the driver deliberately gates 480p on `VI_SEL` bit 0. Record the
 visual result separately, but do not use this no-behavior-change image to draw
 new conclusions about GX rendering or filtering.
 
+Hardware result: **the component-output prerequisite passed, and scan-mode
+detection was ruled out as the source of intermittent blur.** Four consecutive
+boots produced the visual sequence blurry, blurry, clear, clear. All four
+reported the identical raw state `DCR=0001 SEL=0001`, decoded as interlaced
+input state (`nin=0`) with the component-output detect bit set and no forced
+scan mode. The diagnostic prints `component=-1` because
+`has_component_cable` is a signed one-bit C bitfield; it is the driver's
+truthy representation of the decoded value 1, not a differing hardware value.
+
+Every boot selected NTSC 480i and retained healthy PE-token and FIFO-drain
+controls. Therefore neither VI mode detection nor the GX command stream
+correlates with the blur. `SEL=0001` confirms that the existing `progressive`
+option can pass its component-cable gate. The next controlled test should add
+only `progressive` to the `gcn-vifb` boot option and verify NTSC 480p selection,
+a clear stable console, and unchanged GX completion controls.
+
 ---
 
 ## Known pitfalls
