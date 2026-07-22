@@ -943,13 +943,13 @@ static void gx_setup_texture_rgb565(void *tile_buf, u16 width, u16 height)
 	gx_load_bp_reg(0x88000000 | img0);
 
 	/*
-	 * BP 0x8C/0x90 texImage1/2: RVL libogc default texRegion[0].
-	 * GX_InitTexCacheRegion(..., even=0x00000, odd=0x08000,
-	 * size_even=size_odd=GX_TEXCACHE_32K) encodes both the TMEM base and
-	 * cache-size fields.  The odd bank is 0x08000 on Wii, not 0x80000.
+	 * BP 0x8C/0x90 texImage1/2: RVL libogc texRegion[mapid+8], selected
+	 * for RGB565. GX_InitTexCacheRegion(..., even=0x00000, odd=0x80000,
+	 * size_even=size_odd=GX_TEXCACHE_32K) encodes both TMEM bases and
+	 * cache-size fields.
 	 */
 	gx_load_bp_reg(0x8C0D8000);
-	gx_load_bp_reg(0x900D8400);
+	gx_load_bp_reg(0x900DC000);
 
 	/* BP 0x94 texImage3: physical address >> 5 */
 	gx_load_bp_reg(0x94000000 | ((phys >> 5) & 0x00ffffff));

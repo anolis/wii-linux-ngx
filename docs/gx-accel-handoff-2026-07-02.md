@@ -4826,6 +4826,28 @@ safe libogc initialization preamble already contains the correct
 overwrites it with the wrong value. The next hardware test changes only
 `0x900d8400` to `0x900dc000` and corrects the comment.
 
+### Select libogc's RGB565 odd TMEM bank
+
+The active test changes only BP 0x90 in `gx_setup_texture_rgb565()` from
+`0x900d8400` to `0x900dc000`. This selects the `0x80000` odd TMEM bank from
+libogc's `texRegion[mapid+8]`, which its default region callback uses for
+RGB565. The old `0x08000` bank belongs to `texRegion[mapid]`, selected for CI
+and CMPR formats, and was based on an incorrect source reading.
+
+Built image SHA-256:
+
+```text
+9ab3968b2faaaa60ac4ce8deb5f07b8a5e7375d74091170bd774b5255123b773
+```
+
+Command counts and FIFO lengths are unchanged: seed must remain `WT=0080`,
+green `WT=0060`, and live frames `WT=02c0`, with PE tokens, complete FIFO
+drains, and alternating VI pages. A correctly oriented single console image
+without repeated columns is success. Green, blur, or repeated columns are
+separate failures and must be reported exactly; because recent presentation
+is nondeterministic, a successful first boot must be repeated before treating
+the bank correction as stable.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
