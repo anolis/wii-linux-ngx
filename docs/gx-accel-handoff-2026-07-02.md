@@ -4848,6 +4848,27 @@ separate failures and must be reported exactly; because recent presentation
 is nondeterministic, a successful first boot must be repeated before treating
 the bank correction as stable.
 
+Hardware result: **the RGB565 TMEM-bank correction passed.** Three consecutive
+boots of the exact checksum produced one coherent, correctly oriented console
+image; the approximately twenty repeated vertical copies did not recur. Boot
+one was visibly blurry but functional. Boots two and three were clear, showed
+the login prompt, and accepted keyboard input. `auth.log` records a successful
+root `tty1` login in all three boots, and the third ended through userspace
+shutdown after the user issued `sync` and `shutdown now`.
+
+All three kernel logs satisfy the unchanged hardware controls: seed
+`WT=0080`, green `WT=0060`, live frames `WT=02c0`, expected PE tokens, complete
+`RDoff=WToff` drains, correct alternating TFBL/BFBL page values, and worker
+progress through run 750. Keep BP 0x90=`0x0dc000`; the old indexed-texture bank
+was a real source-level error and is now hardware-validated for live RGB565.
+
+Do not attribute the remaining one-in-three blur to the fixed TMEM bank or to
+the vertical copy filter without another controlled test. The identical image
+was clear twice while writing the same filter coefficients. Every boot also
+reports `NTSC 480i (initial guess)`, so field timing or external deinterlacer
+lock is now a plausible presentation-only cause. Audit the driver's active
+`nostalgic`/scan-mode selection before changing texture or copy state again.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
