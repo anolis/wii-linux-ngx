@@ -5158,6 +5158,30 @@ power-ons separately from software/reset-button warm reboots. If cold boots are
 green and warm boots are clear, the remaining defect is inherited startup or
 takeover state rather than random per-frame command behavior.
 
+Cold-power result: **there is no simple cold-green/warm-clear split.** Three
+boots with AC disconnected for 30 seconds between runs produced green,
+extremely blurry, then blurry output. The third run was followed by an
+unexpected kernel restart that the console appeared to attribute to the SD
+filesystem; the restarted output was also blurry. Thus a warm restart does not
+reliably produce clear output.
+
+Only one new log persisted from this sequence. It corresponds to blurry output
+and retains the expected live `WT=02e0`, PE tokens 1 through 4, complete FIFO
+drains, alternating XFB pages, and worker progress through run 300. A host-side
+read-only `e2fsck -fn /dev/sdc2` subsequently passed all five phases without
+finding an error. The kernel's warning is that it mounts the ext3 volume as an
+unchecked ext2 filesystem; it is not evidence of current on-disk corruption.
+The EHCI `spinlock bad magic`/lockup and DMA-debug warnings also recur in older
+logs and boot continues past them, so keep that independent USB-host defect out
+of the GX state experiment.
+
+Resume the remaining validated-stream comparison. The next isolated active
+state is XF 0x1012 (`DUAL_TEX`): libogc initializes it to 1 and the validated
+capture's initial XF snapshot contains 1, while the active Linux path never
+writes it. Now that XF `0x05f4..0x05ff` is explicitly identity, force only
+`DUAL_TEX=1` so the selected post-transform path cannot vary with inherited
+state.
+
 ---
 
 ## Known pitfalls
