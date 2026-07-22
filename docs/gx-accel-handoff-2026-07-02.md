@@ -5029,6 +5029,26 @@ FIFO-length, PE-token, drain, alternating-page, and worker controls.
 Consistently clear, responsive consoles validate the post-matrix correction.
 Any green or blurry boot means at least one additional mismatch remains.
 
+Hardware result: **failed as a complete stability fix, but keep the corrected
+post-matrix index.** Five consecutive boots of the exact checksum produced the
+visual sequence blurry, clear, approximately twenty repeated clear columns,
+approximately twenty repeated clear columns, then clear. The five matching
+rotated kernel logs all selected NTSC 480i and reported identical raw VI mode
+inputs. Each reached seed `WT=0080`, green `WT=0060`, and live `WT=02c0`,
+observed PE tokens 1 through 4, drained every FIFO to `RDoff=WToff`, and kept
+the RGB565 worker running. No logged control correlates with the three visual
+outcomes.
+
+XF 0x1050=`0x3d` remains the source-verified and capture-verified encoding for
+`GX_DTTIDENTITY`; do not revert it to the undefined `0x3f` value. Its failure
+to stabilize the output means at least one other active-state mismatch remains.
+The next isolated correction is BP 0x80: the validated libogc reference frame
+emits texMode0 payload `0x000100` for explicit nearest magnification, nearest
+minification, and disabled edge LOD, while Linux currently emits `0x000080`
+(nearest magnification but linear minification, with the diagonal-LOD bit
+clear). Change only that register before revisiting broader matrix-index or
+TEV defaults.
+
 ---
 
 ## Known pitfalls
