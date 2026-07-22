@@ -4875,6 +4875,27 @@ Primary references:
 - `https://github.com/dolphin-emu/dolphin/blob/master/Source/Core/VideoCommon/BPMemory.h`
 - `https://hitmen.c02.at/files/yagcd/yagcd/chap5.html#sec5.2`
 
+### Read VI scan-mode inputs without changing video timing
+
+The active test keeps the hardware-validated RGB565 TMEM-bank correction and
+all GX, XFB, and VI writes unchanged. It adds one probe-time diagnostic in
+`vi_detect_tv_mode()` reporting raw `VI_DCR` and `VI_SEL`, plus the decoded
+component-cable and non-interlaced bits and `force_scan` value.
+
+Built image SHA-256:
+
+```text
+0b9b4b7fca56356944412b0bde89c1c04383d51c00b261b8c315d840392785cd
+```
+
+This is a positive-control prerequisite for any 480p experiment. A reported
+`component=1` permits the existing `progressive` option to select the driver's
+480p timing path. A reported `component=0` explains the current 480i selection
+and means that merely adding `progressive` to the bootargs will not change the
+mode because the driver deliberately gates 480p on `VI_SEL` bit 0. Record the
+visual result separately, but do not use this no-behavior-change image to draw
+new conclusions about GX rendering or filtering.
+
 ---
 
 ## Known pitfalls

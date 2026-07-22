@@ -1085,12 +1085,16 @@ static void vi_detect_tv_mode(struct vi_ctl *ctl)
 	char *guess = "";
 	enum vi_video_format fmt;
 	int ntsc_idx, pal_idx;
-	u16 dcr;
+	u16 dcr, sel;
 	int error;
 
 	dcr = in_be16(io_base + VI_DCR);
-
-	ctl->has_component_cable = vi_has_component_cable(ctl);
+	sel = in_be16(io_base + VI_SEL);
+	ctl->has_component_cable = vi_sel_get_component(sel);
+	drv_printk(KERN_INFO,
+		   "detect: DCR=%04x SEL=%04x component=%d nin=%d force_scan=%d\n",
+		   dcr, sel, ctl->has_component_cable, vi_dcr_get_nin(dcr),
+		   force_scan);
 
 	if ((force_scan == VI_SCAN_PROGRESSIVE &&
 					ctl->has_component_cable) ||
