@@ -5212,6 +5212,25 @@ observe PE tokens 1 through 4, complete drains, alternating XFB pages, and
 continued worker execution. Five clear consoles pass. Any green, blur, or
 repeated columns reject inherited `DUAL_TEX` as the last stability defect.
 
+Hardware result: **failed as the final stability fix.** Five ordinary boots of
+the exact checksum produced green, blurry, clear, clear, then clear. No fresh
+`WT=0300` kernel log persisted from the sequence, so this result is visual-only
+and cannot be correlated with a completion or timing control.
+
+Keep XF 0x1012=`1` because it matches libogc initialization and the validated
+capture, and because its selected post-transform matrix is now explicitly
+identity. Do not claim the value improved stability: the distribution remains
+within the green/blurry/clear variation already observed without it.
+
+Stop expanding the register-difference search for the next test. Replace only
+the live console texture data with the same deterministic tiled RGB565
+four-quadrant/grid pattern used by `tools/gx-texture-reference`, while retaining
+the complete current hardware state and copy path. A fixed pattern is a better
+positive control than a framebuffer being modified concurrently by fbcon. It
+will show whether blur and malformed output remain when texture bytes are
+constant, and its sharp color boundaries expose coordinate, tiling, cache, and
+filter errors directly.
+
 ---
 
 ## Known pitfalls
