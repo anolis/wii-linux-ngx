@@ -328,6 +328,18 @@ static void gx_load_pos_to_tex_mtx0(u16 width, u16 height)
 	gx_load_xf_reg(0x1018, 30 << 6);
 }
 
+static void gx_load_identity_post_mtx(void)
+{
+	/* GX_LoadTexMtxImm(identity, GX_DTTIDENTITY, GX_MTX3x4). */
+	gx_load_xf_regs_n(0x05f4, 12);
+	wg_f32_bits(F32_ONE);  wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ONE);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ZERO); wg_f32_bits(F32_ZERO);
+	wg_f32_bits(F32_ONE);  wg_f32_bits(F32_ZERO);
+}
+
 /* gx_wait_idle - wait for the GP to finish processing the FIFO */
 static void gx_wait_idle(void)
 {
@@ -915,6 +927,7 @@ static void gx_setup_rgb565_texture_state(u16 width, u16 height)
 	/* GX_DTTIDENTITY - GX_DTTMTX0 = 125 - 64 = 61 (0x3d). */
 	gx_load_xf_reg(0x1050, 0x0000003D);
 	gx_load_pos_to_tex_mtx0(width, height);
+	gx_load_identity_post_mtx();
 }
 
 /*

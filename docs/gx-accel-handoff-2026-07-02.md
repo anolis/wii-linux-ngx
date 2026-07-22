@@ -5102,6 +5102,45 @@ initialized it. Linux now selects the same index without ever defining those
 12 XF words. Initialize only that matrix next; do not simultaneously force XF
 0x1012 (`DUAL_TEX`) so the test remains isolated.
 
+### Initialize the GX_DTTIDENTITY post-transform matrix
+
+The active test keeps BP 0x80=`0x000100`, XF 0x1050=`0x3d`, the corrected
+RGB565 odd TMEM bank, texture invalidation, tiling, TEV, geometry, display
+copy, XFB ownership, VI mode, and worker scheduling unchanged. It adds only
+libogc's missing 3x4 `GX_DTTIDENTITY` matrix load:
+
+```text
+XF 0x05f4..0x05ff =
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0
+```
+
+The address is source-derived from `GX_DTTIDENTITY=125`,
+`GX_DTTMTX0=64`, and libogc's
+`0x0500 + ((texidx - GX_DTTMTX0) << 2)` calculation. Libogc performs this
+load during `GX_Init()`, so the validated per-frame FIFO capture selects index
+`0x3d` but does not contain the initialization command itself. Linux previously
+selected the same index while leaving all 12 matrix words inherited. The new
+path reloads them every live frame. XF 0x1012 (`DUAL_TEX`) deliberately remains
+unchanged: whether inherited post-transform execution is enabled or disabled,
+an identity post-transform should now leave the already-normalized coordinates
+unchanged.
+
+Built image SHA-256:
+
+```text
+d54945870ead21b8e96b820b3f6590860e6eb07f4889998e617edecbdf74f03c
+```
+
+The 53-byte XF command changes the padded live FIFO length from `WT=02c0` to
+`WT=02e0`; seed remains `WT=0080` and green remains `WT=0060`. Test five
+consecutive boots and record each visual outcome in order. Every persisted log
+must observe PE tokens 1 through 4, complete FIFO drains, alternating XFB
+pages, and continued worker execution. Five clear, responsive consoles pass
+the missing-matrix correction. Any green, blurry, or repeated-column boot means
+another inherited state remains relevant.
+
 ---
 
 ## Known pitfalls
