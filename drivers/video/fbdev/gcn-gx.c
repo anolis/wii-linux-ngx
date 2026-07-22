@@ -912,7 +912,8 @@ static void gx_setup_rgb565_texture_state(u16 width, u16 height)
 	/* GX_TG_MTX2x4 from position through GX_TEXMTX0. */
 	gx_load_xf_reg(0x103f, 0x00000001);
 	gx_load_xf_reg(0x1040, 0x00000004);
-	gx_load_xf_reg(0x1050, 0x0000003F);
+	/* GX_DTTIDENTITY - GX_DTTMTX0 = 125 - 64 = 61 (0x3d). */
+	gx_load_xf_reg(0x1050, 0x0000003D);
 	gx_load_pos_to_tex_mtx0(width, height);
 }
 

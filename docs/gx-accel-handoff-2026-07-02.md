@@ -4991,6 +4991,44 @@ FIFO Player, and compare its ordered BP/CP/XF stream with the generated Linux
 path. There is currently only a direct-color reference capture, so further
 texture-register guesses lack a positive-control stream.
 
+### Match libogc's post-texture-matrix identity index
+
+The new `tools/gx-texture-reference` program renders a deterministic 640x480
+tiled RGB565 grid through the same position-generated texture pipeline shape as
+the Linux driver. Its live DOL output and a one-frame Dolphin FIFO replay both
+showed the identical correct grid, validating capture SHA-256
+`df9d2ee358b625886d0fd76ffe60f2c5e4b48f5aaed095a9c0d4062c70bea09c`
+as a positive-control texture stream. The capture contains 679 FIFO bytes and
+one texture-memory update.
+
+Ordered comparison exposed a concrete active mismatch. Libogc emits XF 0x1050
+as `0x0000003d`. This follows directly from its source:
+`GX_SetTexCoordGen()` supplies `GX_DTTIDENTITY=125`, and
+`GX_SetTexCoordGen2()` stores `postmtx - GX_DTTMTX0`, where
+`GX_DTTMTX0=64`; therefore the encoded index is 61 (`0x3d`). The Linux driver
+instead writes `0x3f`, selecting an undefined post-texture-matrix index. That
+can transform otherwise identical texture coordinates through inherited data
+and is a direct mechanism for green, clear, and blurry boot variation.
+
+The active test changes only the live RGB565 path's XF 0x1050 value from
+`0x3f` to `0x3d`. It deliberately retains the preceding test's BP 0x80 value,
+the corrected TMEM bank, texture invalidation, tiling, TEV, geometry, display
+copy, XFB ownership, and worker scheduling. A second capture mismatch exists
+in BP 0x80 (`0x100` in the validated nearest-filter capture versus `0x80` in
+Linux), but it must remain unchanged until this post-matrix test is evaluated.
+
+Built image SHA-256:
+
+```text
+59ca63e5b8f46f198380044bdb8eeb131d6bad92d201374de598059851cc9fbf
+```
+
+Test at least five boots because the prior checksum produced all three visual
+states within five runs. Every boot must retain the established NTSC 480i,
+FIFO-length, PE-token, drain, alternating-page, and worker controls.
+Consistently clear, responsive consoles validate the post-matrix correction.
+Any green or blurry boot means at least one additional mismatch remains.
+
 ---
 
 ## Known pitfalls
