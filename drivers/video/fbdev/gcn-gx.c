@@ -453,6 +453,51 @@ static void gx_tile_rgb565(const u16 *src, u16 *dst, u32 width, u32 height)
 	}
 }
 
+static u16 gx_reference_rgb565_pixel(u32 x, u32 y, u32 width, u32 height)
+{
+	u16 color;
+
+	if (x < width / 2 && y < height / 2)
+		color = 0xf800;
+	else if (x >= width / 2 && y < height / 2)
+		color = 0x07e0;
+	else if (x < width / 2)
+		color = 0x001f;
+	else
+		color = 0xffff;
+
+	if ((x % 32) == 0 || (y % 32) == 0)
+		color = 0x0000;
+	if (x == y || x + y == width - 1)
+		color = 0xffe0;
+
+	return color;
+}
+
+static void gx_fill_reference_rgb565(u16 *dst, u32 width, u32 height)
+{
+	u32 bw = width >> 2;
+	u32 bh = height >> 2;
+	u32 tx, ty, x, y;
+
+	for (ty = 0; ty < bh; ty++) {
+		for (tx = 0; tx < bw; tx++) {
+			u16 *tile = dst + (ty * bw + tx) * 16;
+
+			for (y = 0; y < 4; y++) {
+				for (x = 0; x < 4; x++) {
+					u32 px = tx * 4 + x;
+					u32 py = ty * 4 + y;
+
+					tile[y * 4 + x] =
+						gx_reference_rgb565_pixel(px, py,
+									  width, height);
+				}
+			}
+		}
+	}
+}
+
 /*
  * gx_tile_rgb888 - convert linear RGB888 (packed u32) to GX RGB565 tiles.
  *
@@ -1471,7 +1516,8 @@ static void gx_submit_live_rgb565(const void *vfb, u32 xfb_phys,
 {
 	int i;
 
-	gx_tile_rgb565((const u16 *)vfb, (u16 *)gx_tex_buf, width, height);
+	(void)vfb;
+	gx_fill_reference_rgb565((u16 *)gx_tex_buf, width, height);
 	flush_dcache_range((unsigned long)gx_tex_buf,
 			   (unsigned long)gx_tex_buf +
 			   (unsigned long)width * height * 2);

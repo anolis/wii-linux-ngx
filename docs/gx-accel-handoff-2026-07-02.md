@@ -5231,6 +5231,37 @@ will show whether blur and malformed output remain when texture bytes are
 constant, and its sharp color boundaries expose coordinate, tiling, cache, and
 filter errors directly.
 
+### Render a deterministic tiled RGB565 reference texture
+
+The active test retains the complete `WT=0300` GX command stream from the
+preceding image, including BP 0x80=`0x000100`, explicit base and post-transform
+matrices, XF 0x1012=`1`, corrected TMEM regions, cache invalidation, TEV,
+geometry, copy, XFB, VI, and worker behavior. It changes only the source bytes
+written into `gx_tex_buf`: instead of reading the concurrently updated fbcon
+framebuffer, the worker regenerates the validated reference program's exact
+4x4-tiled RGB565 pattern before every frame.
+
+The expected full-screen image is top-left red, top-right green, bottom-left
+blue, and bottom-right white, with black grid lines every 32 pixels and yellow
+diagonals. The pattern-generation order and RGB565 constants match
+`tools/gx-texture-reference/source/main.c`. It exercises the same texture DMA,
+cache invalidation, coordinate generation, TEV, EFB draw, and XFB copy as the
+console path while removing framebuffer races and changing source pixels.
+
+Built image SHA-256:
+
+```text
+fb24597f05b165001df40e7e0c37d68241a78c6e35700e325b52d9034a3bd66d
+```
+
+Test five ordinary boots and report each image precisely. The FIFO controls
+remain seed `WT=0080`, green `WT=0060`, and live `WT=0300`. A sharp, correctly
+oriented reference pattern on all five boots proves the remaining console
+variation originates before texture upload or in presentation of changing text.
+Green means no visible primitive write. Blur with sharp color boundaries but
+soft grid lines points to filtering or VI presentation. Repeated or displaced
+quadrants/grid lines identify coordinate, tiling, or texture-cache behavior.
+
 ---
 
 ## Known pitfalls
