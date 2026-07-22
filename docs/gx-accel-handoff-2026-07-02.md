@@ -4974,6 +4974,23 @@ boots. Consistently sharp and responsive text validates nearest sampling for
 the 1:1 framebuffer path. Any green, repeated, malformed, or blurry result
 means the magnification bit is not sufficient and must be reported separately.
 
+Hardware result: **failed; nearest magnification does not remove the
+nondeterminism.** Five consecutive boots of the exact checksum produced green,
+clear working console, blurry console, clear working console, then blurry
+console. Four complete nearest-filter logs persisted. Every one returned to
+`force_scan=0` and NTSC 480i, reached the expected seed, green, and live FIFO
+lengths, observed each PE token, drained to `RDoff=WToff`, and alternated VI
+pages. `auth.log` also records successful root logins during this test series.
+
+Because one fixed BP 0x80 value produced all three visual states, texture
+magnification is not the cause. Keep nearest as a reasonable 1:1 presentation
+choice for now, but do not treat it as a stability fix. The next direct-debug
+step is to extend the existing libogc reference program with a known tiled
+RGB565 texture, capture one complete textured frame in Dolphin, validate it in
+FIFO Player, and compare its ordered BP/CP/XF stream with the generated Linux
+path. There is currently only a direct-color reference capture, so further
+texture-register guesses lack a positive-control stream.
+
 ---
 
 ## Known pitfalls
