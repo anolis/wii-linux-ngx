@@ -5349,6 +5349,19 @@ specific race and shift attention to source-cache visibility, the live pixel
 values themselves, or presentation timing. A fresh log must show `WT=0300`;
 otherwise classify the sequence as visual-only.
 
+Hardware result: **green, clear, blurry, blurry, clear.** The only available
+`dmesg.txt` remained the stale July 20 log with `WT=02a0`, so the sequence is
+visual-only. An immutable linear snapshot did not improve the distribution.
+Concurrent fbcon mutation while `gx_tile_rgb565()` traverses the source is
+therefore ruled out as the cause of green and blurry boots.
+
+The contrast with the stable deterministic control now points at changing
+texture contents or the live values, but the static reference pattern did not
+positively validate cache invalidation: stale texture-cache lines would still
+produce the expected image when every frame contains identical bytes. The next
+control must change deterministic texture bytes on a slow, visible schedule
+while retaining the known-good reference pattern and unchanged GX commands.
+
 ---
 
 ## Known pitfalls
