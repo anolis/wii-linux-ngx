@@ -5326,6 +5326,29 @@ linear live framebuffer into private kernel memory first, then tile only from
 that immutable snapshot. This separates concurrent source mutation during the
 relatively slow tiled conversion from the already validated texture/GX path.
 
+### Tile live pixels from an immutable linear snapshot
+
+The active test preserves the complete preceding texture and GX path, including
+the reference prefill and expected live FIFO `WT=0300`. It allocates a CPU-only
+linear RGB565 snapshot with `vzalloc()` during GX initialization. For each live
+frame, the worker copies `vfb_mem` into that private buffer once and performs
+the 4x4 texture tiling exclusively from the snapshot. The GX texture address,
+cache flush, register state, draw, EFB copy, XFB selection, and VI behavior are
+unchanged.
+
+Built image SHA-256:
+
+```text
+7b6ab583fb205b0633d098d29b286fed24e7aa71d3af3dbcba042942dc09f7f5
+```
+
+Test five ordinary boots and report the ordered visual result. Five stable,
+clear consoles would implicate fbcon mutating the linear source while the tiled
+converter traverses it. Green, blur, or repeated columns would reject that
+specific race and shift attention to source-cache visibility, the live pixel
+values themselves, or presentation timing. A fresh log must show `WT=0300`;
+otherwise classify the sequence as visual-only.
+
 ---
 
 ## Known pitfalls
