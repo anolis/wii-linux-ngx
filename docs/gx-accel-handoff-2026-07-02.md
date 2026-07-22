@@ -4936,6 +4936,22 @@ or external deinterlacer lock as the remaining presentation problem. Loss of
 signal, malformed output, or continued blur rejects the current progressive
 path and requires reverting only this boot option.
 
+Hardware result: **failed; progressive output does not fix the presentation
+defect.** The four reported visual outcomes were green, blurry, blurry,
+blurry. Three complete logs persisted and all three show `force_scan=2`,
+`NTSC 480p`, and progressive VI page programming where TFBL and BFBL point to
+the same scanout address. Each also retained seed `WT=0080`, green `WT=0060`,
+live `WT=02c0`, successful PE tokens, complete FIFO drains, alternating XFB
+pages, and continued worker execution. The initial green boot ended before a
+complete rotated log persisted, so it is visual evidence only.
+
+This rules out 480i field timing and external deinterlacer lock as the primary
+cause of the repeatable blur. Revert only the `progressive` boot option. The
+next texture-only test should then clear texMode0's magnification-filter bit,
+changing BP 0x80 from `0x80000090` (linear) to `0x80000080` (nearest). That
+one-bit test was proposed before the TMEM-bank correction but never executed
+against the now-working `0x900dc000` RGB565 region.
+
 ---
 
 ## Known pitfalls
