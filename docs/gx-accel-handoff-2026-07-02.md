@@ -4801,6 +4801,31 @@ the boot-to-boot variation was removed and permits a later explicit no-filter
 test. Any remaining mix of green, sharp, and blurry results rules this group
 out as the nondeterminism source.
 
+Hardware result: **failed; the display showed approximately twenty repeated
+vertical copies of the console.** The log validates the intended image and the
+entire asynchronous pipeline. The first seed grew to `WT=0080`, the following
+green copy remained `WT=0060`, and the first two live submissions remained
+`WT=02c0`. Every PE token arrived, every FIFO drained to `RDoff=WToff`, VI
+TFBL/BFBL alternated between the expected physical pages, and worker milestones
+continued through run 750. The display-copy initialization group is therefore
+accepted as deterministic state but ruled out as sufficient to fix the live
+texture corruption. Sparse XFB sample words remain non-authoritative.
+
+Source inspection then found a concrete error in `gx_setup_texture_rgb565()`.
+On Wii, libogc's `__GXDefTexRegionCallback()` sends RGB565 format 4 through the
+non-CI/non-CMPR branch to `texRegion[mapid+8]`. For map 0, `GX_Init()` builds
+that region from `_gxtexregionaddrtable[16] = 0x00000000` and
+`_gxtexregionaddrtable[24] = 0x00080000`. `GX_InitTexCacheRegion()` therefore
+encodes BP 0x8c as `0x0d8000` and BP 0x90 as `0x0dc000`.
+
+The driver instead writes BP 0x90 as `0x0d8400`, which is the odd-bank encoding
+for address `0x00008000` used by `texRegion[0]`, not the RGB565 region. Its
+comment incorrectly claims that indexed region is the RVL RGB565 default. The
+safe libogc initialization preamble already contains the correct
+`0x900dc000`, but every live `GX_LoadTexObjPreloaded` equivalent immediately
+overwrites it with the wrong value. The next hardware test changes only
+`0x900d8400` to `0x900dc000` and corrects the comment.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
