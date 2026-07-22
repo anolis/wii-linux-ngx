@@ -5079,6 +5079,29 @@ execution. Five clear, responsive consoles pass the correction. Any malformed
 boot means texMode0 was another real stream mismatch but is not sufficient to
 explain the remaining nondeterminism.
 
+Hardware result: **strong improvement, but not a stability pass.** Five
+consecutive boots of the exact checksum produced green, clear, clear, clear,
+then clear. Only the final two boots persisted new rotated kernel logs; both
+correspond to clear output and retain identical NTSC 480i inputs, expected
+seed/green/live FIFO lengths, PE tokens 1 through 4, complete FIFO drains, and
+continued worker execution. The initial green boot is visual evidence only, so
+there is no failed log to correlate with a command or timing control.
+
+Keep BP 0x80=`0x000100`: it exactly matches the independently replayed libogc
+texture stream and improved this five-boot visual distribution from the prior
+test's two malformed, one blurry, and two clear boots to one green and four
+clear boots. It is nevertheless insufficient by itself because the first boot
+never advanced visually from the known green copy-clear result.
+
+The next source audit found an active prerequisite omitted by both the Linux
+setup and the earlier frame-only comparison. Libogc `GX_Init()` calls
+`GX_LoadTexMtxImm(identity, GX_DTTIDENTITY, GX_MTX3x4)`, which writes the 3x4
+identity matrix to XF `0x05f4..0x05ff`. The validated frame selects that matrix
+with XF 0x1050=`0x3d`, but does not reload it each frame because libogc already
+initialized it. Linux now selects the same index without ever defining those
+12 XF words. Initialize only that matrix next; do not simultaneously force XF
+0x1012 (`DUAL_TEX`) so the test remains isolated.
+
 ---
 
 ## Known pitfalls
