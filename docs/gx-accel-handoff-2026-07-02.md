@@ -5311,6 +5311,21 @@ fbcon updates, or the second full-buffer overwrite. Any persisted log should
 show the unchanged live FIFO endpoint `WT=0300`; visual results remain valid
 but must be explicitly labeled visual-only when no fresh log persists.
 
+Hardware result: **green, blurry, blurry, clear, clear.** The available
+`dmesg.txt` was stale and reported `WT=02a0`, not this image's expected
+`WT=0300`, so this five-boot sequence is visual-only. Restoring live fbcon data
+also restored the failure distribution despite retaining the successful
+reference build's full-buffer first touch and extra CPU work. This rejects the
+simple texture-allocation warm-up or pre-submit-delay explanation.
+
+Together with the deterministic pattern result, this narrows the unstable input
+to the live source path: bytes being modified concurrently by fbcon, source
+cache visibility while the worker reads `vfb_mem`, or the second overwrite of
+the tiled texture. Do not change GX state for the next control. Snapshot the
+linear live framebuffer into private kernel memory first, then tile only from
+that immutable snapshot. This separates concurrent source mutation during the
+relatively slow tiled conversion from the already validated texture/GX path.
+
 ---
 
 ## Known pitfalls
