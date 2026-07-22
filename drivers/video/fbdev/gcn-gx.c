@@ -915,6 +915,9 @@ static void gx_setup_rgb565_texture_state(u16 width, u16 height)
 {
 	gx_setup_vertex_color_state(width, height);
 
+	/* GX_Init enables the post-transform selected by texCoordGen2. */
+	gx_load_xf_reg(0x1012, 0x00000001);
+
 	/* Keep the proven colour channel and add one texture-coordinate generator. */
 	gx_load_bp_reg(0x00000011);
 	gx_load_bp_reg(0xC008FFF8);

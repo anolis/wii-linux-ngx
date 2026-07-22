@@ -5182,6 +5182,36 @@ writes it. Now that XF `0x05f4..0x05ff` is explicitly identity, force only
 `DUAL_TEX=1` so the selected post-transform path cannot vary with inherited
 state.
 
+### Enable the initialized post-transform path
+
+The active test adds exactly one command to the live RGB565 setup:
+
+```text
+XF 0x1012 = 0x00000001  (DUAL_TEX enabled)
+```
+
+Libogc writes this value during `GX_Init()`, Dolphin models bit 0 as the enable
+for the post-transform selected by XF 0x1050, and the validated capture's
+initial XF snapshot contains 1. Linux previously left it inherited. The prior
+test now guarantees that selected index `0x3d` points to an explicitly loaded
+3x4 identity matrix, so enabling this path cannot intentionally alter S/T/Q;
+it only removes inherited enable-state variation. BP 0x80, both texture
+matrices, matrix indices, TMEM regions, invalidation, TEV, geometry, copy, XFB,
+VI, and worker behavior remain unchanged.
+
+Built image SHA-256:
+
+```text
+355a3f69dd9eec15c4fc69d59869ea2afac9a8faee109bc294704b5e3985bf67
+```
+
+The 9-byte command changes the padded live FIFO length from `WT=02e0` to
+`WT=0300`; seed remains `WT=0080` and green remains `WT=0060`. Test five
+ordinary boots and record the exact visual sequence. Every persisted log must
+observe PE tokens 1 through 4, complete drains, alternating XFB pages, and
+continued worker execution. Five clear consoles pass. Any green, blur, or
+repeated columns reject inherited `DUAL_TEX` as the last stability defect.
+
 ---
 
 ## Known pitfalls
