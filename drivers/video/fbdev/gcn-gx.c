@@ -1063,6 +1063,26 @@ static void gx_set_copy_clear_rgb(u8 r, u8 g, u8 b)
 	gx_load_bp_reg(0x51000000 | 0x00ffffff);
 }
 
+static void gx_setup_display_copy_state(void)
+{
+	/* Remove display-copy state inherited from Mini before the first copy. */
+	gx_load_bp_reg(0x42000000); /* destination alpha disabled */
+	gx_load_bp_reg(0x43000040); /* RGB8/Z24 EFB, linear Z */
+	gx_load_bp_reg(0x44000003); /* update both fields */
+	gx_load_bp_reg(0x68000000); /* field mode disabled */
+
+	/* GX_SetCopyFilter(aa=false), matching the proven libogc frame. */
+	gx_load_bp_reg(0x01666666);
+	gx_load_bp_reg(0x02666666);
+	gx_load_bp_reg(0x03666666);
+	gx_load_bp_reg(0x04666666);
+	gx_load_bp_reg(0x5330A208);
+	gx_load_bp_reg(0x5400820A);
+
+	/* GX_SetDispCopyYScale(1.0). */
+	gx_load_bp_reg(0x4E000100);
+}
+
 /*
  * gcn_gx_copy_efb_to_xfb - trigger hardware EFB->XFB blit.
  *
@@ -1470,6 +1490,7 @@ static bool gx_process_rgb565(const void *vfb, u32 xfb_phys,
 	case GX_DIAG_SEED:
 		gx_diag_finish_baseline = finish_count;
 		fifo_pos = 0;
+		gx_setup_display_copy_state();
 		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
 		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
 		gx_submit_cmds("seed");

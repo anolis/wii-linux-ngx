@@ -4761,6 +4761,46 @@ This directly targets boot-to-boot persistence of green/sharp/blurry output
 without changing tiling, texture addressing, TEV, geometry, page ownership, or
 VI programming.
 
+### Initialize deterministic display-copy state before the seed
+
+The active test writes the complete known display-copy state once at the start
+of the first seed submission, before any EFB clear or EFB-to-XFB copy:
+
+```text
+BP 0x42 = 0x000000  destination alpha disabled
+BP 0x43 = 0x000040  RGB8/Z24 EFB, linear Z
+BP 0x44 = 0x000003  update both fields
+BP 0x68 = 0x000000  field mode disabled
+BP 0x01-0x04 = 0x666666  centered non-AA samples
+BP 0x53 = 0x30a208  libogc vertical-filter coefficients 0-3
+BP 0x54 = 0x00820a  libogc vertical-filter coefficients 4-6
+BP 0x4e = 0x000100  display-copy Y scale 1.0
+```
+
+These values are byte-exact with the independently captured libogc frame that
+rendered red both on Wii hardware and in Dolphin FIFO Player. The generated
+live path already wrote BP 0x42-0x44, BP 0x68, and BP 0x01-0x04, but only after
+the initial seed copies; it never wrote BP 0x4e or BP 0x53/0x54. Consequently,
+copy behavior and filtering could retain Mini state across every frame and
+vary between boots. No texture, TEV, geometry, cache invalidation, XFB
+ownership, or VI register value changes in this test.
+
+Built image SHA-256:
+
+```text
+8daa81f756ad3dc33342e9b2ecc522228d89e4bf1a0e5e15884f7202f8a02b9c
+```
+
+The added eleven BP writes increase only the first `seed` submission from
+`WT=0060` to `WT=0080`; the following `green` submission remains `WT=0060`
+and live texture submissions remain `WT=02c0`. All must reach their PE token
+and drain to `RDoff=WToff`. The primary result is visual reproducibility: run
+the exact checksum at least three times. A consistently sharp console supports
+the missing-state hypothesis; consistently filtered/blurry output still proves
+the boot-to-boot variation was removed and permits a later explicit no-filter
+test. Any remaining mix of green, sharp, and blurry results rules this group
+out as the nondeterminism source.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`
