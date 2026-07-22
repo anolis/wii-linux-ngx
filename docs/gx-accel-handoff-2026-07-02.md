@@ -4702,6 +4702,29 @@ failure to latch the VI page address, and failure downstream of correctly
 latched registers. Keep the corrected cache sequence in place until that
 earlier presentation failure is isolated.
 
+### Correlate completed XFB contents with VI hardware readback
+
+The active diagnostic keeps the corrected libogc cache invalidation and all GX
+and VI writes unchanged. For each of the first four completed pages,
+`vi_gx_present_rgb565()` now reads back VI TFBL and BFBL immediately after
+`vi_set_framebuffer()`. It also reads the first, middle, and last 32-bit words
+of that physical XFB through the existing uncached `fb_mem` mapping.
+
+Built image SHA-256:
+
+```text
+171ea7aec4629594910073971564f0eb84eaeec6246a4c5bf5e3ea65db895354
+```
+
+Each `GX present diag` line reports the completed XFB, raw TFBL/BFBL, and three
+XFB words. Presentation 2 is the strongest positive control: it copies the
+known uniform green EFB produced by the seed clear, so all three XFB samples
+must be the same valid YUYV word. Presentations 3 and 4 should contain live
+console pixels and normally produce nonuniform samples. TFBL/BFBL must change
+with the alternating XFB address. If the display remains stale, these values
+distinguish among an unwritten XFB, a VI register that failed to latch, and a
+failure after both memory and VI state are correct.
+
 Primary references:
 
 - `https://github.com/devkitPro/libogc/blob/master/libogc/gx.c`

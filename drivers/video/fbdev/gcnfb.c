@@ -1455,8 +1455,17 @@ static void vi_dispatch_vtrace(struct vi_ctl *ctl)
 
 static u32 vi_gx_present_rgb565(struct vi_ctl *ctl)
 {
+	static u32 present_diag_count;
 	unsigned long flags;
 	u32 completed_xfb;
+	u32 page_bytes;
+	u32 page_off;
+	u32 tfbl;
+	u32 bfbl;
+	u32 xfb_first;
+	u32 xfb_middle;
+	u32 xfb_last;
+	u8 __iomem *xfb_page;
 	int page;
 
 	if (gcn_gx_take_completed_rgb565(&completed_xfb)) {
@@ -1473,6 +1482,30 @@ static u32 vi_gx_present_rgb565(struct vi_ctl *ctl)
 			drv_printk(KERN_WARNING,
 				   "GX completed unknown XFB 0x%08x\n",
 				   completed_xfb);
+		else if (present_diag_count < 4) {
+			page_bytes = ctl->info->fix.line_length *
+				ctl->info->var.yres;
+			page_off = completed_xfb - (u32)gx_fb_start;
+			tfbl = in_be32(ctl->io_base + VI_TFBL);
+			bfbl = in_be32(ctl->io_base + VI_BFBL);
+			if (page_off + page_bytes <= gx_fb_size) {
+				xfb_page = (u8 __iomem *)fb_mem + page_off;
+				xfb_first = in_be32((u32 __iomem *)xfb_page);
+				xfb_middle = in_be32((u32 __iomem *)
+					(xfb_page + (page_bytes >> 1)));
+				xfb_last = in_be32((u32 __iomem *)
+					(xfb_page + page_bytes - 4));
+			} else {
+				xfb_first = 0xdead0001;
+				xfb_middle = 0xdead0002;
+				xfb_last = 0xdead0003;
+			}
+			present_diag_count++;
+			drv_printk(KERN_INFO,
+				   "GX present diag %u xfb=%08x TFBL=%08x BFBL=%08x XFB=%08x/%08x/%08x\n",
+				   present_diag_count, completed_xfb, tfbl, bfbl,
+				   xfb_first, xfb_middle, xfb_last);
+		}
 	}
 
 	spin_lock_irqsave(&ctl->lock, flags);
