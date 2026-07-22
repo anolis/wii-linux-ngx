@@ -5262,6 +5262,27 @@ Green means no visible primitive write. Blur with sharp color boundaries but
 soft grid lines points to filtering or VI presentation. Repeated or displaced
 quadrants/grid lines identify coordinate, tiling, or texture-cache behavior.
 
+Hardware result: **the deterministic texture control passed the GX pipeline
+and materially narrowed the defect.** Five ordinary boots rendered the expected
+reference pattern with the visual sequence blurry, clear, clear, clear, clear.
+There were no solid-green results and no repeated or displaced columns. No
+fresh `WT=0300` log persisted, so the result is visual-only, but all five boots
+visibly prove texture sampling, coordinate generation, TEV, EFB drawing, and
+XFB copying occurred.
+
+The first-boot blur can still be VI/display lock, but the disappearance of green
+and repeated-column failures means changing from live fbcon bytes to a complete
+deterministic texture affected the unstable path. This test changed three
+things together: source bytes became constant, every texture word was generated
+by the reference fill, and that fill performs more CPU work before submission
+than the simple console tiler. Do not attribute the improvement to only one yet.
+
+The next control keeps the reference fill as a texture-buffer warm-up and timing
+load, then immediately overwrites every tile with the live fbcon through the
+existing `gx_tile_rgb565()` before the unchanged cache flush and `WT=0300`
+submission. Stable console output implicates first-touch/cache state or timing.
+Return of green/columns implicates live source data or the second overwrite.
+
 ---
 
 ## Known pitfalls
