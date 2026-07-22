@@ -38,7 +38,6 @@
 #include <linux/interrupt.h>
 #include <linux/irqdomain.h>
 #include <linux/string.h>
-#include <linux/vmalloc.h>
 #include <linux/workqueue.h>
 #include <asm/cacheflush.h>
 #include <asm/div64.h>
@@ -65,7 +64,6 @@ static void *gx_fifo_buf;
 /* Texture tile buffer: virtual FB converted to GX 4×4 tiled format */
 static void *gx_tex_raw;
 static void *gx_tex_buf;
-static void *gx_vfb_snapshot;
 static bool gx_log_next_submit;
 static u32 gx_current_frame;
 static u16 gx_expected_token;
@@ -498,6 +496,14 @@ static void gx_fill_reference_rgb565(u16 *dst, u32 width, u32 height)
 			}
 		}
 	}
+}
+
+static void gx_invert_rgb565_texture(u16 *buf, u32 width, u32 height)
+{
+	u32 i;
+
+	for (i = 0; i < width * height; i++)
+		buf[i] ^= 0xffff;
 }
 
 /*
@@ -1516,13 +1522,12 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 static void gx_submit_live_rgb565(const void *vfb, u32 xfb_phys,
 				  u16 width, u16 height, const char *phase)
 {
-	size_t frame_size = (size_t)width * height * 2;
 	int i;
 
+	(void)vfb;
 	gx_fill_reference_rgb565((u16 *)gx_tex_buf, width, height);
-	memcpy(gx_vfb_snapshot, vfb, frame_size);
-	gx_tile_rgb565((const u16 *)gx_vfb_snapshot, (u16 *)gx_tex_buf,
-		       width, height);
+	if ((gx_rgb565_work_runs / 120) & 1)
+		gx_invert_rgb565_texture((u16 *)gx_tex_buf, width, height);
 	flush_dcache_range((unsigned long)gx_tex_buf,
 			   (unsigned long)gx_tex_buf +
 			   (unsigned long)width * height * 2);
@@ -1803,12 +1808,6 @@ int gcn_gx_init(void)
 	gx_tex_raw = NULL;
 	gx_tex_buf = (void *)__va(GX_TEX_BUF_MEM1_PHYS);
 	memset(gx_tex_buf, 0, GX_TEX_BUF_SIZE);
-	gx_vfb_snapshot = vzalloc(GX_TEX_BUF_SIZE);
-	if (!gx_vfb_snapshot) {
-		ret = -ENOMEM;
-		pr_err("gcn-gx: failed to allocate RGB565 snapshot buffer\n");
-		goto err_pe_irq;
-	}
 	INIT_WORK(&gx_rgb565_work.work, gx_rgb565_workfn);
 	gx_rgb565_work.vfb = NULL;
 	gx_rgb565_work_runs = 0;
@@ -1824,10 +1823,6 @@ int gcn_gx_init(void)
 	pr_info("gcn-gx: init: H done (accel ON)\n");
 	gx_accel_ready = true;
 	return 0;
-
-err_pe_irq:
-	pe_write(PE_REG_INTR_STATUS, PE_TOKEN_BIT | PE_FINISH_BIT);
-	free_irq(gx_pe_finish_irq, &gx_pe_finish_irq);
 
 err_irq_mapping:
 	irq_dispose_mapping(gx_pe_finish_irq);
@@ -1859,8 +1854,6 @@ void gcn_gx_exit(void)
 
 	/* gx_tex_raw is NULL (tex_buf is a MEM1 reserve, not kmalloc'd) */
 	kfree(gx_tex_raw);
-	vfree(gx_vfb_snapshot);
-	gx_vfb_snapshot = NULL;
 	if (gx_fifo_buf_raw)
 		kfree(gx_fifo_buf_raw);
 	gx_fifo_buf_raw = NULL;

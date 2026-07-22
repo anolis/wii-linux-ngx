@@ -5362,6 +5362,35 @@ produce the expected image when every frame contains identical bytes. The next
 control must change deterministic texture bytes on a slow, visible schedule
 while retaining the known-good reference pattern and unchanged GX commands.
 
+### Alternate deterministic texture contents every four seconds
+
+The active test removes the completed live-snapshot control and returns to the
+known-good deterministic RGB565 reference texture. It regenerates the normal
+four-quadrant/grid pattern every frame, then bitwise-inverts every RGB565 word
+during alternating 120-worker-run intervals. At the observed roughly 30 worker
+runs per second, the display should switch about every four seconds between the
+normal red/green/blue/white pattern and an unmistakable cyan/magenta/yellow/
+black inverse with white grid lines and blue diagonals.
+
+The cache flush, exact libogc `GX_InvalidateTexAll()` command sequence, texture
+address, GX register state, FIFO `WT=0300`, draw, EFB copy, XFB, and VI paths
+remain unchanged. Unlike the static reference control, this is a positive
+control for GX observing changed texture bytes at the same physical address.
+
+Built image SHA-256:
+
+```text
+4c9239eb0deb7f3a2ddb8b9d5c6a4e4b8e3cf4cd72246dd8a5116ab6e6b53289
+```
+
+Run five ordinary boots, leaving each boot running for at least 12 seconds.
+Report whether each boot cleanly alternates normal/inverted at approximately
+four-second intervals, stays on one pattern, becomes green, or shows partial,
+blurry, or repeated updates. Five clean alternations validate texture cache
+invalidation for changing deterministic bytes and narrow the live failure to
+the actual fbcon values or another source-side distinction. Static or partial
+transitions implicate cache invalidation or CPU-to-GX visibility directly.
+
 ---
 
 ## Known pitfalls
