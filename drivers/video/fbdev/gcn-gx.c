@@ -39,6 +39,7 @@
 #include <linux/irqdomain.h>
 #include <linux/string.h>
 #include <linux/workqueue.h>
+#include <linux/crc32.h>
 #include <asm/cacheflush.h>
 #include <asm/div64.h>
 #include <asm/page.h>
@@ -452,6 +453,31 @@ static void gx_tile_rgb565(const u16 *src, u16 *dst, u32 width, u32 height)
 				tile[row * 4 + 3] = sl[3];
 			}
 		}
+	}
+}
+
+struct gx_rgb565_digest {
+	u32 crc;
+	u32 sum;
+	u32 nonzero;
+	u16 xor;
+};
+
+static void gx_digest_rgb565(const u16 *pixels, u32 count,
+			     struct gx_rgb565_digest *digest)
+{
+	u32 i;
+
+	digest->crc = crc32_le(~0U, (const u8 *)pixels, count * sizeof(*pixels));
+	digest->sum = 0;
+	digest->nonzero = 0;
+	digest->xor = 0;
+	for (i = 0; i < count; i++) {
+		u16 pixel = pixels[i];
+
+		digest->sum += pixel;
+		digest->nonzero += pixel != 0;
+		digest->xor ^= pixel;
 	}
 }
 
@@ -1524,14 +1550,28 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 static void gx_submit_live_rgb565(const void *vfb, u32 xfb_phys,
 				  u16 width, u16 height, const char *phase)
 {
-	void *tex_buf = (gx_live_texture_frame++ & 1) ?
+	u32 live_frame = gx_live_texture_frame++;
+	void *tex_buf = (live_frame & 1) ?
 		gx_tex_buf_alt : gx_tex_buf;
+	u32 pixel_count = (u32)width * height;
 	int i;
 
 	gx_tile_rgb565((const u16 *)vfb, (u16 *)tex_buf, width, height);
+	if (live_frame < 4) {
+		struct gx_rgb565_digest vfb_digest;
+		struct gx_rgb565_digest tex_digest;
+
+		gx_digest_rgb565((const u16 *)vfb, pixel_count, &vfb_digest);
+		gx_digest_rgb565((const u16 *)tex_buf, pixel_count, &tex_digest);
+		pr_info("gcn-gx: live-data frame=%u tex=%08x vfb crc=%08x sum=%08x xor=%04x nz=%u tex crc=%08x sum=%08x xor=%04x nz=%u\n",
+			live_frame, (u32)virt_to_phys(tex_buf),
+			vfb_digest.crc, vfb_digest.sum, vfb_digest.xor,
+			vfb_digest.nonzero, tex_digest.crc, tex_digest.sum,
+			tex_digest.xor, tex_digest.nonzero);
+	}
 	flush_dcache_range((unsigned long)tex_buf,
 			   (unsigned long)tex_buf +
-			   (unsigned long)width * height * 2);
+			   pixel_count * sizeof(u16));
 
 	fifo_pos = 0;
 	gx_setup_rgb565_texture_state(width, height);

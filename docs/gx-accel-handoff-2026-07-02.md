@@ -5633,6 +5633,32 @@ than trusting isolated XFB pixel samples: log deterministic CPU-side checksums
 of the source VFB and each completed tiled texture for the first live frames,
 while retaining the existing PE/FIFO markers and full-frame visual result.
 
+### Digest live VFB and tiled texture data before GX submission
+
+The active test leaves the complete GX command stream and physical texture
+double-buffering unchanged. For only the first four live submissions, it scans
+the full 640x480 RGB565 source VFB and completed tiled texture and logs CRC32,
+wrapping 32-bit pixel sum, XOR, and nonzero-pixel count for each.
+
+The order-independent sum, XOR, and nonzero count are an internal positive
+control: tiling is a permutation, so all three must match exactly between VFB
+and texture. Different CRC32 values are expected for a nonuniform console
+because tiling changes byte order. A green full-frame result with nonzero,
+changing VFB data and matching texture invariants isolates the fault after CPU
+tiling, at texture fetch/primitive/EFB write. An empty or invariant VFB instead
+identifies the source framebuffer path. Mismatched invariants identify tiling
+or memory corruption before GX submission.
+
+Built image SHA-256:
+
+```text
+1bc587761be82ab2cbce5b798d133b997eb9102f583161372c4e6812c4f286fd
+```
+
+Deploy in place, boot once for at least 30 seconds, verify keyboard response,
+and return the card. The required log lines begin with `gcn-gx: live-data`.
+Keep the full-frame visual outcome authoritative for whether rendering worked.
+
 ---
 
 ## Known pitfalls
