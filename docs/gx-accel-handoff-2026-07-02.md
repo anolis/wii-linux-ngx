@@ -5659,6 +5659,28 @@ Deploy in place, boot once for at least 30 seconds, verify keyboard response,
 and return the card. The required log lines begin with `gcn-gx: live-data`.
 Keep the full-frame visual outcome authoritative for whether rendering worked.
 
+First hardware attempt: **green full-frame**, but the data-path diagnosis is
+inconclusive because no current `live-data` record persisted. On return, the
+host mounted the root partition with `emergency_ro`; directory reads reported
+`Structure needs cleaning`. A non-modifying `e2fsck -fn` found incorrect
+sizes/block counts on the four active system logs, stale directory entries for
+`/var/log/dmesg`, `/var/log/dmesg.1.gz`, and `/tmp/.clean`, plus block and inode
+bitmap differences. The readable `dmesg.txt` was from an older `WT=02a0`
+single-texture build and must not be attributed to this test.
+
+`e2fsck -fy` recovered the journal and repaired all reported inode, directory,
+and bitmap errors. A second `e2fsck -fn` then completed all five passes with
+exit status 0:
+
+```text
+WII-LINUX-NGX: 17955/92160 files (13.8% non-contiguous), 300175/367616 blocks
+```
+
+Repeat this exact diagnostic image without another boot-partition write. The
+visual green result remains valid, but it cannot distinguish source data from
+primitive/EFB failure until the four `live-data` lines persist. Shut down or
+wait for the diagnostic write to complete before removing the card.
+
 ---
 
 ## Known pitfalls
