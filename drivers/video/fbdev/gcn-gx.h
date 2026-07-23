@@ -110,6 +110,7 @@
  * (MEM1 and MEM2 are coalesced).  Use the DTS-reserved region instead. */
 #define GX_TEX_BUF_SIZE		(640 * 576 * 2)
 #define GX_TEX_BUF_MEM1_PHYS	0x01200000	/* reserved in wii.dts */
+#define GX_TEX_BUF_ALT_MEM1_PHYS	0x012c0000	/* second 768 KB slot */
 
 /* gx_accel_ready is set to true by gcn_gx_init() on success */
 extern bool gx_accel_ready;

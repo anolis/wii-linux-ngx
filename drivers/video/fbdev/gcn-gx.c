@@ -64,6 +64,7 @@ static void *gx_fifo_buf;
 /* Texture tile buffer: virtual FB converted to GX 4×4 tiled format */
 static void *gx_tex_raw;
 static void *gx_tex_buf;
+static void *gx_tex_buf_alt;
 static bool gx_log_next_submit;
 static u32 gx_current_frame;
 static u16 gx_expected_token;
@@ -1522,19 +1523,21 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 static void gx_submit_live_rgb565(const void *vfb, u32 xfb_phys,
 				  u16 width, u16 height, const char *phase)
 {
+	bool inverted = (gx_rgb565_work_runs / 120) & 1;
+	void *tex_buf = inverted ? gx_tex_buf_alt : gx_tex_buf;
 	int i;
 
 	(void)vfb;
-	gx_fill_reference_rgb565((u16 *)gx_tex_buf, width, height);
-	if ((gx_rgb565_work_runs / 120) & 1)
-		gx_invert_rgb565_texture((u16 *)gx_tex_buf, width, height);
-	flush_dcache_range((unsigned long)gx_tex_buf,
-			   (unsigned long)gx_tex_buf +
+	gx_fill_reference_rgb565((u16 *)tex_buf, width, height);
+	if (inverted)
+		gx_invert_rgb565_texture((u16 *)tex_buf, width, height);
+	flush_dcache_range((unsigned long)tex_buf,
+			   (unsigned long)tex_buf +
 			   (unsigned long)width * height * 2);
 
 	fifo_pos = 0;
 	gx_setup_rgb565_texture_state(width, height);
-	gx_setup_texture_rgb565(gx_tex_buf, width, height);
+	gx_setup_texture_rgb565(tex_buf, width, height);
 	gx_draw_color_quad(width, height, 0xff, 0x00, 0x00);
 	gx_load_bp_reg(0x45000002);
 	for (i = 0; i < 32; i++)
@@ -1807,7 +1810,9 @@ int gcn_gx_init(void)
 	 */
 	gx_tex_raw = NULL;
 	gx_tex_buf = (void *)__va(GX_TEX_BUF_MEM1_PHYS);
+	gx_tex_buf_alt = (void *)__va(GX_TEX_BUF_ALT_MEM1_PHYS);
 	memset(gx_tex_buf, 0, GX_TEX_BUF_SIZE);
+	memset(gx_tex_buf_alt, 0, GX_TEX_BUF_SIZE);
 	INIT_WORK(&gx_rgb565_work.work, gx_rgb565_workfn);
 	gx_rgb565_work.vfb = NULL;
 	gx_rgb565_work_runs = 0;
@@ -1817,8 +1822,9 @@ int gcn_gx_init(void)
 	gx_rgb565_boot_deferred = false;
 	gx_diag_phase = GX_DIAG_SEED;
 	gx_diag_finish_baseline = 0;
-	pr_info("gcn-gx: init: tex_buf phys=0x%08x virt=%p\n",
-		GX_TEX_BUF_MEM1_PHYS, gx_tex_buf);
+	pr_info("gcn-gx: init: tex_buf phys=0x%08x/%08x virt=%p/%p\n",
+		GX_TEX_BUF_MEM1_PHYS, GX_TEX_BUF_ALT_MEM1_PHYS,
+		gx_tex_buf, gx_tex_buf_alt);
 
 	pr_info("gcn-gx: init: H done (accel ON)\n");
 	gx_accel_ready = true;

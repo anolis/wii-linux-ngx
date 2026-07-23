@@ -15,7 +15,7 @@
 /dts-v1/;
 
 /memreserve/ 0x10000000 0x0004000;	/* DSP RAM */
-/memreserve/ 0x01200000 0x000C0000;	/* GX texture tile buffer 768 KB */
+/memreserve/ 0x01200000 0x00180000;	/* two GX texture tile buffers, 768 KB each */
 /memreserve/ 0x01684000 0x0010000;	/* GX command FIFO */
 /memreserve/ 0x01694000 0x0004000;	/* lowmem stub save area */
 /memreserve/ 0x01698000 0x0168000;	/* framebuffer, see video@0c002000 */

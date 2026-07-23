@@ -5411,6 +5411,34 @@ transition complete, stale or partially invalidated same-address texture cache
 state is the cause. If green or half-frame output remains, investigate texture
 DMA/address range or downstream presentation rather than cache identity.
 
+### Alternate deterministic patterns from two physical texture buffers
+
+The active test expands the DTS MEM1 texture reservation at `0x01200000` from
+768 KiB to 1.5 MiB and uses two non-overlapping 768 KiB slots:
+`0x01200000` for the normal reference pattern and `0x012c0000` for the inverted
+pattern. Each four-second phase regenerates and flushes its selected buffer,
+then BP texImage3 binds that phase's physical address. Returning to a phase
+returns to the corresponding address and unchanged deterministic contents.
+
+All texture dimensions, cache-region registers, `GX_InvalidateTexAll()`
+commands, GX state, command length and expected `WT=0300`, EFB copy, XFB, VI,
+and 120-run phase timing remain unchanged. The extra 768 KiB is explicitly
+reserved before Linux memory allocation and ends at `0x01380000`, below the GX
+FIFO reservation at `0x01684000`.
+
+Built image SHA-256:
+
+```text
+b853703e89bd0aa078f227f726dfc29af6e4d49b24d3168dbe2fd0f4a671fae4
+```
+
+Run five boots for at least 12 seconds each and report green, half-frame,
+full-frame, blur, and whether normal/inverted transitions are complete. Five
+complete full-frame alternations would implicate same-address texture-cache
+identity and support double-buffering the live console. Any green or partial
+boot would rule out same-address reuse as the sufficient cause and point toward
+texture DMA/range completion or a downstream EFB/XFB/VI presentation race.
+
 ---
 
 ## Known pitfalls
