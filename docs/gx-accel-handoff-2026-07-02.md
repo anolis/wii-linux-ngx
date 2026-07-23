@@ -5597,6 +5597,42 @@ controls for the deployment-correlated first-boot behavior without rebuilding,
 changing the FAT directory entry, or requiring a post-write truncate. Report
 clarity, keyboard response, and reboot behavior separately.
 
+Same-size in-place rewrite control result: **stable green-only display with no
+console, while keyboard input remained responsive.** The source and card were
+both 4,337,120 bytes with SHA-256
+`9bdd31ec53fefbce4102875dde1ec3bd3f3f28259e201f1d5bf43fe3114d6a4f`.
+The target FAT file identifier remained `11289` before and after the write, and
+the partition was synced and cleanly unmounted before boot.
+
+This is a display-path failure, not a CPU crash: the system remained stable and
+accepted keyboard input. It also disproves the narrower theory that only
+`cp`-style truncation, reallocation, or a changed FAT directory entry causes
+the post-deployment green screen. Merely rewriting the same sectors can trigger
+it, although an earlier identical in-place rewrite produced a full-frame first
+boot. The effect is therefore deployment-correlated but not deterministic.
+
+Do not rebuild or return the card yet. Perform exactly one complete power-off
+and second boot without any host/card write. If that boot is clear, the same
+kernel and filesystem transition from green to working solely across boots. If
+it remains green, continue booting the untouched image to measure how many
+starts are required, recording keyboard response and stability independently.
+
+Operator returned the card before the untouched second-boot control. The fresh
+rootfs log nevertheless makes the green result more specific. It reports both
+physical texture buffers, successful seed and live PE tokens, exact FIFO drains
+for seed `WT=0080`, green `WT=0060`, and live `WT=0300`, presentation of both
+XFB addresses, and continued worker progress through run 750 at about 30
+seconds. No GX timeout or submission failure appears before shutdown.
+
+Therefore the stable green boot is downstream of command transport and worker
+scheduling. The remaining high-value split is whether `vfb_mem` and the tiled
+texture buffer actually contain changing console pixels on a green boot, or
+whether valid texture data reaches a primitive that intermittently fails to
+replace the green EFB. Add a bounded diagnostic over known full buffers rather
+than trusting isolated XFB pixel samples: log deterministic CPU-side checksums
+of the source VFB and each completed tiled texture for the first live frames,
+while retaining the existing PE/FIFO markers and full-frame visual result.
+
 ---
 
 ## Known pitfalls
