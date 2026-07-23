@@ -5714,6 +5714,34 @@ content still affects GX. If both remain green, the whole boot's downstream
 draw/presentation state is bad. If both render, the failure is transient and
 the transition timing becomes the next discriminator.
 
+### Alternate live and deterministic textures within one boot
+
+The active test retains physical texture double-buffering and every GX command,
+register, cache operation, fence, EFB copy, XFB selection, and VI operation from
+the two-green-boot digest image. It changes only the CPU source generator in
+alternating 120-worker-run phases: live fbcon pixels for approximately four
+seconds, then the validated red/green/blue/white quadrant-and-grid reference
+for approximately four seconds, repeating thereafter. Both sources continue
+to alternate physical texture addresses on every submitted frame.
+
+The first four live frames retain the full-buffer digest diagnostic. Phase
+boundaries log `gcn-gx: texture phase=live|reference run=N`. A boot that begins
+green but shows the reference pattern at the first phase transition proves the
+same initialized draw path can recover and places the distinction in source
+content or timing. Green through both source phases identifies a boot-wide
+downstream texture-fetch/primitive/EFB/presentation failure. Rendering both
+phases identifies a transient startup failure.
+
+Built image SHA-256:
+
+```text
+66a150bd8b25323bb1f53d6001e6a05e32460faf7eada7525795c3cd84eb617b
+```
+
+Boot once and observe for at least 14 seconds, long enough for live to
+reference to live transitions. Report every visible transition in order. Then
+perform `sync` and `poweroff` before returning the card so phase logs persist.
+
 ---
 
 ## Known pitfalls

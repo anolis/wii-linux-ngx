@@ -1554,9 +1554,17 @@ static void gx_submit_live_rgb565(const void *vfb, u32 xfb_phys,
 	void *tex_buf = (live_frame & 1) ?
 		gx_tex_buf_alt : gx_tex_buf;
 	u32 pixel_count = (u32)width * height;
+	bool reference = (gx_rgb565_work_runs / 120) & 1;
 	int i;
 
-	gx_tile_rgb565((const u16 *)vfb, (u16 *)tex_buf, width, height);
+	if (reference)
+		gx_fill_reference_rgb565((u16 *)tex_buf, width, height);
+	else
+		gx_tile_rgb565((const u16 *)vfb, (u16 *)tex_buf, width, height);
+	if (!(gx_rgb565_work_runs % 120))
+		pr_info("gcn-gx: texture phase=%s run=%u tex=%08x\n",
+			reference ? "reference" : "live",
+			gx_rgb565_work_runs, (u32)virt_to_phys(tex_buf));
 	if (live_frame < 4) {
 		struct gx_rgb565_digest vfb_digest;
 		struct gx_rgb565_digest tex_digest;
