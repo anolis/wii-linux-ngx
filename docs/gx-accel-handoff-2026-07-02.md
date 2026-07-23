@@ -5480,6 +5480,13 @@ boots were required before the first successful full-frame alternation. The
 kernel source, build, file contents, and source/on-card SHA-256 remained exactly
 `b853703e89bd0aa078f227f726dfc29af6e4d49b24d3168dbe2fd0f4a671fae4`.
 
+Operator correction: **the first green boot self-rebooted.** The second green
+observation was the automatically restarted kernel, not a separate clean
+power-on. The later clear observations followed afterward. Retract the claim
+that all six observations were independent complete power cycles and do not
+classify the first result as display-only. It represents a real kernel/watchdog
+restart coincident with green output; no fresh crash log persisted.
+
 Host inspection found no newly timestamped persistent rootfs file from these
 boots; `dmesg.txt` remains the stale July 20 log. A cryptographic signature or
 changed kernel bytes is therefore unsupported. Current candidates are a
@@ -5490,7 +5497,9 @@ Repeat the same-byte deployment and test only the first post-deployment boot,
 returning the card after that one observation. Repeated green first boots across
 independent identical rewrites would establish deployment as an apparatus
 variable. Mixed first-boot outcomes would favor an ordinary startup race that
-only appeared deployment-correlated in the short sequences.
+only appeared deployment-correlated in the short sequences. Record separately
+whether the first boot remains running for at least 30 seconds or self-reboots;
+screen color alone is no longer a sufficient outcome for this control.
 
 ---
 
