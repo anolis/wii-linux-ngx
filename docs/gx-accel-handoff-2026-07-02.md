@@ -5473,6 +5473,25 @@ alter persistent rootfs state or workload timing. Re-copy this exact unchanged
 without another host write. Green only immediately after the identical-byte
 rewrite would reproduce a deployment/card-state effect independently of code.
 
+Identical-byte redeployment result: **green, green, clear, clear, clear,
+clear**, with complete power-off between every boot. This reproduces a strong
+post-deployment correlation while disproving a deterministic one-boot seed: two
+boots were required before the first successful full-frame alternation. The
+kernel source, build, file contents, and source/on-card SHA-256 remained exactly
+`b853703e89bd0aa078f227f726dfc29af6e4d49b24d3168dbe2fd0f4a671fae4`.
+
+Host inspection found no newly timestamped persistent rootfs file from these
+boots; `dmesg.txt` remains the stale July 20 log. A cryptographic signature or
+changed kernel bytes is therefore unsupported. Current candidates are a
+probabilistic startup/presentation race correlated with deployment handling,
+FAT/file-layout behavior in the loader, or an unobserved persistent SD state.
+
+Repeat the same-byte deployment and test only the first post-deployment boot,
+returning the card after that one observation. Repeated green first boots across
+independent identical rewrites would establish deployment as an apparatus
+variable. Mixed first-boot outcomes would favor an ordinary startup race that
+only appeared deployment-correlated in the short sequences.
+
 ---
 
 ## Known pitfalls
