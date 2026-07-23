@@ -5542,6 +5542,33 @@ PE completion, cache flushing/invalidation, EFB/XFB double buffering, and FIFO
 controls unchanged. This is the first test of whether the texture-buffer fix
 stabilizes the original accelerated console workload.
 
+### Render the live console through alternating physical texture buffers
+
+The active test replaces the deterministic pattern generator with the original
+`gx_tile_rgb565()` conversion from live `vfb_mem`. A dedicated live texture
+frame counter selects `0x01200000` and `0x012c0000` on alternating submitted
+frames. The CPU therefore updates the texture slot not used by the immediately
+preceding frame before flushing it, invalidating GX texture cache, binding its
+physical address, drawing, and copying to the alternating XFB.
+
+All corrected CP/XF/BP state, PE completion markers, texture-cache regions,
+`GX_InvalidateTexAll()`, EFB copy, XFB presentation, and expected live
+`WT=0300` remain unchanged. This differs from the old unstable live path by the
+second reserved texture slot and strict per-submission texture alternation.
+
+Built image SHA-256:
+
+```text
+9bdd31ec53fefbce4102875dde1ec3bd3f3f28259e201f1d5bf43fe3114d6a4f
+```
+
+Deploy only with an in-place non-truncating write. Test five complete-power-off
+boots and report console clarity, repeated columns, green, keyboard response,
+and any self-reboot separately. Five clear responsive consoles would validate
+physical texture double-buffering as the original blur/partial-update fix.
+A fresh log must report both texture addresses and live `WT=0300`; retain the
+known EHCI restart defect as a separate issue unless the trace implicates GX.
+
 ---
 
 ## Known pitfalls

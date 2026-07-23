@@ -95,6 +95,7 @@ struct gx_rgb565_work {
 static struct gx_rgb565_work gx_rgb565_work;
 static DEFINE_SPINLOCK(gx_rgb565_work_lock);
 static u32 gx_rgb565_work_runs;
+static u32 gx_live_texture_frame;
 static u32 gx_rgb565_ready_xfb;
 static u32 gx_rgb565_present_count;
 static bool gx_rgb565_work_busy;
@@ -1523,14 +1524,11 @@ static void gx_load_reference_red_frame(u32 xfb_phys, u16 width, u16 height)
 static void gx_submit_live_rgb565(const void *vfb, u32 xfb_phys,
 				  u16 width, u16 height, const char *phase)
 {
-	bool inverted = (gx_rgb565_work_runs / 120) & 1;
-	void *tex_buf = inverted ? gx_tex_buf_alt : gx_tex_buf;
+	void *tex_buf = (gx_live_texture_frame++ & 1) ?
+		gx_tex_buf_alt : gx_tex_buf;
 	int i;
 
-	(void)vfb;
-	gx_fill_reference_rgb565((u16 *)tex_buf, width, height);
-	if (inverted)
-		gx_invert_rgb565_texture((u16 *)tex_buf, width, height);
+	gx_tile_rgb565((const u16 *)vfb, (u16 *)tex_buf, width, height);
 	flush_dcache_range((unsigned long)tex_buf,
 			   (unsigned long)tex_buf +
 			   (unsigned long)width * height * 2);
@@ -1816,6 +1814,7 @@ int gcn_gx_init(void)
 	INIT_WORK(&gx_rgb565_work.work, gx_rgb565_workfn);
 	gx_rgb565_work.vfb = NULL;
 	gx_rgb565_work_runs = 0;
+	gx_live_texture_frame = 0;
 	gx_rgb565_ready_xfb = 0;
 	gx_rgb565_present_count = 0;
 	gx_rgb565_work_busy = false;
