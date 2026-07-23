@@ -5501,6 +5501,23 @@ only appeared deployment-correlated in the short sequences. Record separately
 whether the first boot remains running for at least 30 seconds or self-reboots;
 screen color alone is no longer a sufficient outcome for this control.
 
+Second independent identical-`cp` result: **stable green for more than 30
+seconds, no self-reboot, and no blur.** The card was returned immediately after
+that single boot. `dmesg.txt` remained the stale July 20 log. Together with the
+preceding identical rewrite, this establishes that the first boot immediately
+after host `cp` deployment is reproducibly green while holding kernel bytes and
+SHA-256 constant. The prior self-reboot is not required for the green outcome
+and remains a separate intermittent crash.
+
+Next isolate `cp`'s truncate/replacement semantics from the byte write itself.
+Mount the existing FAT boot partition and rewrite `zImage.ngx` in place with
+`dd conv=notrunc,fsync`, after confirming source and target lengths match. This
+preserves the existing directory entry, file length, and FAT allocation chain.
+Verify the unchanged `b853703e...` SHA-256 afterward and test exactly one boot.
+Clear output would implicate truncate/reallocation or FAT metadata. Green would
+show that merely rewriting the existing sectors, host/card cache state, or an
+uncontrolled deployment-adjacent variable is sufficient.
+
 ---
 
 ## Known pitfalls
