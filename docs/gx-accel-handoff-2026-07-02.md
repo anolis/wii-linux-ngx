@@ -5837,6 +5837,29 @@ cause until a reboot is captured in the log. The remaining GX-visible defect is
 blur; the next test should remove source alternation and continuously render the
 live console while retaining a distinctive non-green failure clear.
 
+### Continuous live-console render test
+
+The next test removes only the `(work_runs / 120) & 1` reference-source
+selection. Every worker invocation now tiles the live virtual framebuffer into
+the same alternating MEM1 texture buffers. GX state, texture-cache invalidation,
+FIFO submission, PE completion, EFB copy-clear, XFB alternation, startup marker
+sequence, and first-four-frame full-buffer digests are unchanged. A failed draw
+after startup therefore remains visibly teal rather than green.
+
+This is a controlled transition from the successful full-path diagnostic toward
+the actual driver workload. Boot for at least 45 seconds, report whether the
+console remains continuously visible, whether blur changes over time, and
+whether keyboard input works. If it reboots, leave the card inserted long enough
+for normal syslog flushing after the next boot before returning it.
+
+Built image SHA-256:
+
+```text
+cafaecdad36e80fb3c6681388bf2f3c7a94690ea9ed1c65e6f57e512587b456d
+```
+
+The image is 4,337,872 bytes.
+
 ---
 
 ## Known pitfalls
