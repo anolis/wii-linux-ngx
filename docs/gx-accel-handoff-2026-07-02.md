@@ -5569,6 +5569,34 @@ physical texture double-buffering as the original blur/partial-update fix.
 A fresh log must report both texture addresses and live `WT=0300`; retain the
 known EHCI restart defect as a separate issue unless the trace implicates GX.
 
+Hardware result across five complete-power-off boots: **blurry console with
+working keyboard and stable runtime; clear console with working keyboard then
+reboot after a reported filesystem-check failure; clear console with working
+keyboard and stable runtime; clear console with working keyboard and stable
+runtime; clear console with working keyboard then reboot.** No boot showed the
+green-only output or repeated-column corruption seen in earlier live-console
+tests. Four of five boots were clear, and all five reached an interactive
+console. Physical texture double-buffering therefore materially improves the
+live path but does not yet eliminate the intermittent first-frame blur.
+
+The two reboots are not evidence against the GX result by themselves. With the
+card returned, an offline, non-modifying `e2fsck -fn /dev/sdc2` completed all
+five passes with exit status 0 and reported no filesystem errors or repairs:
+
+```text
+WII-LINUX-NGX: 17956/92160 files (13.8% non-contiguous), 300039/367616 blocks
+```
+
+The boot-time filesystem-check message was therefore transient rather than
+persistent ext3 damage. Keep these reboots grouped with the independently
+observed EHCI/spinlock/kernel-stability defect unless a fresh trace names GX.
+
+Before changing graphics code, repeat the exact same image with a same-size
+in-place `dd conv=notrunc,fsync` rewrite and test only its first boot. This
+controls for the deployment-correlated first-boot behavior without rebuilding,
+changing the FAT directory entry, or requiring a post-write truncate. Report
+clarity, keyboard response, and reboot behavior separately.
+
 ---
 
 ## Known pitfalls
