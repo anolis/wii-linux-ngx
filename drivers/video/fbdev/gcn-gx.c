@@ -77,7 +77,7 @@ static u32 gx_pe_finish_count;
 enum gx_finish_diag_phase {
 	GX_DIAG_SEED,
 	GX_DIAG_WAIT_SEED,
-	GX_DIAG_WAIT_GREEN,
+	GX_DIAG_WAIT_BLUE,
 	GX_DIAG_WAIT_DRAW,
 	GX_DIAG_DONE,
 };
@@ -488,7 +488,7 @@ static u16 gx_reference_rgb565_pixel(u32 x, u32 y, u32 width, u32 height)
 	if (x < width / 2 && y < height / 2)
 		color = 0xf800;
 	else if (x >= width / 2 && y < height / 2)
-		color = 0x07e0;
+		color = 0x0410;
 	else if (x < width / 2)
 		color = 0x001f;
 	else
@@ -1588,7 +1588,10 @@ static void gx_submit_live_rgb565(const void *vfb, u32 xfb_phys,
 	gx_load_bp_reg(0x45000002);
 	for (i = 0; i < 32; i++)
 		gx_wr8(0);
-	gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
+	if (!strcmp(phase, "live0"))
+		gx_set_copy_clear_rgb(0x00, 0x80, 0x80);
+	else
+		gx_set_copy_clear_rgb(0x00, 0x00, 0xff);
 	gx_copy_efb_to_xfb(xfb_phys, width, height, true);
 	gx_submit_cmds(phase);
 }
@@ -1613,7 +1616,7 @@ static bool gx_process_rgb565(const void *vfb, u32 xfb_phys,
 		gx_diag_finish_baseline = finish_count;
 		fifo_pos = 0;
 		gx_setup_display_copy_state();
-		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
+		gx_set_copy_clear_rgb(0x00, 0x00, 0xff);
 		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
 		gx_submit_cmds("seed");
 		gx_diag_phase = GX_DIAG_WAIT_SEED;
@@ -1627,17 +1630,17 @@ static bool gx_process_rgb565(const void *vfb, u32 xfb_phys,
 			finish_count);
 		gx_diag_finish_baseline = finish_count;
 		fifo_pos = 0;
-		gx_set_copy_clear_rgb(0x00, 0xff, 0x00);
+		gx_set_copy_clear_rgb(0xff, 0x00, 0x00);
 		gx_copy_efb_to_xfb(xfb_phys, width, height, true);
-		gx_submit_cmds("green");
-		gx_diag_phase = GX_DIAG_WAIT_GREEN;
+		gx_submit_cmds("blue");
+		gx_diag_phase = GX_DIAG_WAIT_BLUE;
 		submitted = true;
 		break;
 
-	case GX_DIAG_WAIT_GREEN:
+	case GX_DIAG_WAIT_BLUE:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: green seed complete; enabling live RGB565 texture\n");
+		pr_info("gcn-gx: blue seed complete; enabling live RGB565 texture\n");
 		gx_diag_finish_baseline = finish_count;
 		gx_submit_live_rgb565(vfb, xfb_phys, width, height, "live0");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;

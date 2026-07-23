@@ -5742,6 +5742,63 @@ Boot once and observe for at least 14 seconds, long enough for live to
 reference to live transitions. Report every visible transition in order. Then
 perform `sync` and `poweroff` before returning the card so phase logs persist.
 
+Hardware result for `66a150bd...`: **persistent green through every live and
+reference phase, followed by a reset.** The log proves the worker switched to
+reference at runs 120, 360, 600, and 840 and back to live at runs 240, 480,
+720, and 960. It retained exact live-data invariants on both texture buffers,
+successful PE markers, complete FIFO drains, XFB presentation, and continued
+execution. The known-good deterministic pattern never appeared. Therefore the
+failure is boot-wide and downstream of source selection: changing valid texture
+contents cannot recover the texture-fetch/primitive/EFB/copy/presentation path
+once this green state occurs.
+
+The reported self-reboot was not a GX timeout or panic. At 34.234 seconds the
+log records `gcn-rsw: 200`, immediately followed by `Rebooting in 3 seconds...`
+and further reset-switch state changes. Classify it as a hardware reset-switch
+event (or switch electrical/bounce issue if the operator did not press it), not
+a graphics crash. A post-run `e2fsck -fn` completed all five passes with exit
+status 0.
+
+The operator also supplied an important historical observation: a brief green
+flash has occurred during the console handoff since the beginning of the
+project, before this specific diagnostic sequence existed. Green can therefore
+be inherited bootloader/VI/XFB initialization state. Stop using green as a
+driver-owned marker.
+
+### Replace green with a blue-red-teal-blue failure sequence
+
+The active test keeps the same live/reference source alternation, texture
+double-buffering, and GX pipeline, but removes intentional solid green from the
+diagnostic. Because `COPY_CTRL_CLEAR` clears EFB after copying it, failure
+backgrounds are staged in copy order:
+
+```text
+first seed clears EFB blue
+second seed displays blue, then clears EFB red
+failed live0 displays red, then clears EFB teal
+next failed live displays teal, then clears EFB blue
+later failed live frames display blue
+```
+
+The old `green` phase label and state name are now `blue`. The deterministic
+reference texture's top-right green quadrant is also changed to RGB565 teal
+`0x0410`; its other quadrants remain red, blue, and white, with the existing
+black grid and yellow diagonals. Thus a solid green frame is not emitted by
+this driver build and identifies pre-driver or inherited presentation state.
+
+Built image SHA-256:
+
+```text
+419055b38941348943e37c5f5377d3937664db56f6e8672b516b0aef1262f3e6
+```
+
+Observe one boot for at least 20 seconds and report every full-frame transition
+in order. The most diagnostic outcomes are persistent green (driver never
+visibly replaces initialization), blue/red/teal progression (copy path works
+but texture draw does not), and appearance of the reference pattern or live
+console (textured draw works in that phase). Cleanly sync and power off before
+returning the card.
+
 ---
 
 ## Known pitfalls
