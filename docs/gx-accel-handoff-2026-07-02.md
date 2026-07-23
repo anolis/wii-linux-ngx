@@ -5439,6 +5439,26 @@ identity and support double-buffering the live console. Any green or partial
 boot would rule out same-address reuse as the sufficient cause and point toward
 texture DMA/range completion or a downstream EFB/XFB/VI presentation race.
 
+Hardware result: **green, full-frame alternating, full-frame alternating,
+full-frame alternating, full-frame alternating.** No fresh log persisted, so
+the sequence is visual-only. Physical texture double-buffering removed the two
+half-frame outcomes seen with same-address updates, making it a strong candidate
+for the eventual live path. It did not eliminate the recurring first boot's
+green result.
+
+Do not immediately attribute this to writing a new SD image. The first boot is
+also the coldest hardware start, while subsequent reset/reload boots can inherit
+GX, TMEM, EFB, or VI state programmed by the preceding kernel. The earlier
+cold/warm experiment used the unstable live console and was inconclusive; the
+deterministic double-buffer pattern now provides a much cleaner discriminator.
+
+Operational control: retain this exact checksum and perform five boots with AC
+power physically disconnected for at least 30 seconds before every boot. Leave
+each running for 12 seconds. If all cold boots are green and an immediate warm
+reload is full-frame, the remaining failure is cold-start initialization. If
+cold boots alternate successfully too, the one-green/four-full sequence is tied
+to deployment/card handling or another uncontrolled first-run variable.
+
 ---
 
 ## Known pitfalls
