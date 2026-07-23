@@ -5391,6 +5391,26 @@ invalidation for changing deterministic bytes and narrow the live failure to
 the actual fbcon values or another source-side distinction. Static or partial
 transitions implicate cache invalidation or CPU-to-GX visibility directly.
 
+Hardware result: **green; top half only alternating clearly; top half only
+alternating clearly; full frame alternating clearly; full frame alternating
+clearly.** The available `dmesg.txt` was still the stale July 20 `WT=02a0`
+file, so this sequence is visual-only.
+
+This is a partial positive control. Two full-frame boots prove the existing
+flush plus `GX_InvalidateTexAll()` path can make changed deterministic bytes
+visible at the same physical texture address. The green and two half-frame
+boots prove it is not reliable across boots or across the complete texture.
+The defect therefore does not require fbcon or live pixel values; the changing
+deterministic texture reproduces it directly.
+
+The next control should stop depending on same-address invalidation. Reserve a
+second complete MEM1 texture buffer and bind alternating physical addresses for
+the normal and inverted four-second phases. Keep texture contents, timing,
+commands, and all downstream state unchanged. If double-buffering makes every
+transition complete, stale or partially invalidated same-address texture cache
+state is the cause. If green or half-frame output remains, investigate texture
+DMA/address range or downstream presentation rather than cache identity.
+
 ---
 
 ## Known pitfalls
