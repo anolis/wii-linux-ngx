@@ -5765,7 +5765,7 @@ project, before this specific diagnostic sequence existed. Green can therefore
 be inherited bootloader/VI/XFB initialization state. Stop using green as a
 driver-owned marker.
 
-### Replace green with a blue-red-teal-blue failure sequence
+### Replace green with a blue-red-purple-teal failure sequence
 
 The active test keeps the same live/reference source alternation, texture
 double-buffering, and GX pipeline, but removes intentional solid green from the
@@ -5775,9 +5775,9 @@ backgrounds are staged in copy order:
 ```text
 first seed clears EFB blue
 second seed displays blue, then clears EFB red
-failed live0 displays red, then clears EFB teal
-next failed live displays teal, then clears EFB blue
-later failed live frames display blue
+failed live0 displays red, then clears EFB purple
+next failed live displays purple, then clears EFB teal
+later failed live frames display teal
 ```
 
 The old `green` phase label and state name are now `blue`. The deterministic
@@ -5786,18 +5786,26 @@ reference texture's top-right green quadrant is also changed to RGB565 teal
 black grid and yellow diagonals. Thus a solid green frame is not emitted by
 this driver build and identifies pre-driver or inherited presentation state.
 
-Built image SHA-256:
+The first staged version, commit `bd7657112506`, accidentally reused blue as
+the fourth marker. Its image SHA-256 was
+`419055b38941348943e37c5f5377d3937664db56f6e8672b516b0aef1262f3e6`.
+It was superseded before deployment and received no hardware test.
+
+Corrected image SHA-256:
 
 ```text
-419055b38941348943e37c5f5377d3937664db56f6e8672b516b0aef1262f3e6
+161070d6888907ccaef034cca22ef6e245cc0c5c0fb1159ade1597e1b65f17b5
 ```
+
+The image is 4,337,832 bytes. This is the only version of this diagnostic that
+should be deployed and hardware-tested.
 
 Observe one boot for at least 20 seconds and report every full-frame transition
 in order. The most diagnostic outcomes are persistent green (driver never
-visibly replaces initialization), blue/red/teal progression (copy path works
-but texture draw does not), and appearance of the reference pattern or live
-console (textured draw works in that phase). Cleanly sync and power off before
-returning the card.
+visibly replaces initialization), blue/red/purple/teal progression (copy path
+works but texture draw does not), and appearance of the reference pattern or
+live console (textured draw works in that phase). Cleanly sync and power off
+before returning the card.
 
 ---
 

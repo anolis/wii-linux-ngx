@@ -1589,9 +1589,9 @@ static void gx_submit_live_rgb565(const void *vfb, u32 xfb_phys,
 	for (i = 0; i < 32; i++)
 		gx_wr8(0);
 	if (!strcmp(phase, "live0"))
-		gx_set_copy_clear_rgb(0x00, 0x80, 0x80);
+		gx_set_copy_clear_rgb(0x80, 0x00, 0x80);
 	else
-		gx_set_copy_clear_rgb(0x00, 0x00, 0xff);
+		gx_set_copy_clear_rgb(0x00, 0x80, 0x80);
 	gx_copy_efb_to_xfb(xfb_phys, width, height, true);
 	gx_submit_cmds(phase);
 }
