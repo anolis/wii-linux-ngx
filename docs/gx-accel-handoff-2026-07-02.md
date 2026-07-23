@@ -5681,6 +5681,39 @@ visual green result remains valid, but it cannot distinguish source data from
 primitive/EFB failure until the four `live-data` lines persist. Shut down or
 wait for the diagnostic write to complete before removing the card.
 
+The journal repair recovered the first attempt's diagnostics, and the unchanged
+repeat also persisted a complete set. **Both boots were visually green.** In
+the recovered first green boot, frames 1 through 3 have exact VFB/texture
+matches for all three order-independent invariants:
+
+```text
+frame 1 tex=012c0000 sum=73cbd6fe xor=0000 nz=43782
+frame 2 tex=01200000 sum=75c85359 xor=ad55 nz=44533
+frame 3 tex=012c0000 sum=7703d813 xor=ad55 nz=44999
+```
+
+The CRC32 values differ as expected because the tiled destination has a
+different byte order. These matches validate substantial, changing console
+content and the complete CPU tiler for both physical MEM1 texture addresses on
+a boot where no console pixel became visible. Frame 0's small mismatch is not
+memory corruption: fbcon can modify the live VFB after tiling but before the
+diagnostic's later source scan. The unchanged repeat likewise converges to an
+exact frame-3 match after early console activity.
+
+Both runs retained live `WT=0300`, successful PE tokens, exact FIFO drains,
+alternating XFB presentation, and worker progress through run 750. A
+post-shutdown `e2fsck -fn` also completed all five passes with exit status 0.
+Conclude that the green failure is after CPU source acquisition and tiling: GX
+texture visibility/fetch, primitive/EFB write, EFB copy result, or downstream
+presentation remains. Do not spend more tests on VFB snapshots or tiler races.
+
+Next alternate the immutable known-good quadrant/grid texture and live console
+texture inside one boot while retaining the same two buffers and identical GX
+commands. If reference phases render while live phases stay green, the pixel
+content still affects GX. If both remain green, the whole boot's downstream
+draw/presentation state is bad. If both render, the failure is transient and
+the transition timing becomes the next discriminator.
+
 ---
 
 ## Known pitfalls
