@@ -5459,6 +5459,20 @@ reload is full-frame, the remaining failure is cold-start initialization. If
 cold boots alternate successfully too, the one-green/four-full sequence is tied
 to deployment/card handling or another uncontrolled first-run variable.
 
+Correction from the operator: **all five reported boots were already complete
+power-offs, not warm reloads.** The first green result occurs specifically after
+a fresh host deployment; later fully powered-off boots of the same image render
+the full alternating pattern. Retract the proposed cold-versus-warm control.
+Hardware state cannot explain persistence across those AC-off cycles.
+
+Do not call this a kernel-image signature effect: the SHA-256-identical bytes do
+not acquire a different cryptographic identity after first boot. The deployment
+operation can still alter FAT allocation/directory metadata, and first boot can
+alter persistent rootfs state or workload timing. Re-copy this exact unchanged
+`b853703e...` image, verify the same on-card SHA-256, boot once, then boot again
+without another host write. Green only immediately after the identical-byte
+rewrite would reproduce a deployment/card-state effect independently of code.
+
 ---
 
 ## Known pitfalls
