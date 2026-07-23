@@ -5807,6 +5807,36 @@ works but texture draw does not), and appearance of the reference pattern or
 live console (textured draw works in that phase). Cleanly sync and power off
 before returning the card.
 
+Hardware result for `161070d6...`: **both texture sources rendered repeatedly
+in one boot.** The display briefly passed through the staged solid startup
+colours, then alternated between a blurry live console and the multicolour
+quadrant/grid reference pattern. The operator explicitly confirmed that the
+coloured frame was the test pattern rather than a solid clear colour.
+
+The fresh record was in `/var/log/kern.log`; `/dmesg.txt` remained stale because
+the card booted its normal init path rather than `/init-diag.sh`. The persisted
+log matches every visible four-second transition: reference at worker runs 120,
+360, 600, 840, and 1080, and live at runs 240, 480, 720, 960, and 1200. The
+first four live frames had substantial, changing texture digests, both MEM1
+texture buffers were used, every logged FIFO drained to `RDoff=WToff=0x0300`,
+PE tokens and finish IRQs completed, and alternating XFBs were presented. GX
+continued through the final persisted line at 44.816 seconds.
+
+This is the first full positive control for the complete accelerated path:
+CPU RGB565 source generation, 4x4 tiling, MEM1 texture fetch, textured primitive
+rasterization into EFB, EFB-to-XFB copy, and VI presentation all worked on real
+hardware. The earlier persistent-green result is therefore intermittent state,
+not proof that these commands are intrinsically invalid.
+
+The operator observed a spontaneous reboot on an earlier run and again around
+this test sequence, but this persisted run contains no panic, timeout,
+`gcn-rsw`, or reboot marker. It does contain the pre-existing EHCI faults during
+USB initialization: an uninitialized spinlock in `ehci_halt()` and an invalid
+DMA unmap warning. Treat USB/kernel stability as a separate credible reboot
+cause until a reboot is captured in the log. The remaining GX-visible defect is
+blur; the next test should remove source alternation and continuously render the
+live console while retaining a distinctive non-green failure clear.
+
 ---
 
 ## Known pitfalls
