@@ -5518,6 +5518,30 @@ Clear output would implicate truncate/reallocation or FAT metadata. Green would
 show that merely rewriting the existing sectors, host/card cache state, or an
 uncontrolled deployment-adjacent variable is sufficient.
 
+In-place rewrite result: **full-frame alternating, no blur, then a
+self-reboot.** Before the write, source and target were both exactly 4,337,496
+bytes with SHA-256 `b853703e...`. `dd conv=notrunc,fsync` retained the target's
+file identifier `11129`, length, and checksum. Unlike both preceding `cp`
+deployments, its first boot rendered the complete pattern. Use in-place writes
+for subsequent tests; truncate/reallocation or associated FAT metadata is now
+the strongest explanation for post-`cp` green output.
+
+A fresh `kern.log` validates the GX path through worker run 750 at 29.5 seconds:
+both texture addresses were initialized, seed `WT=0080`, green `WT=0060`, live
+`WT=0300`, PE markers completed, and every logged FIFO drained. It contains no
+GX failure before the later reboot. It does contain the independent, known EHCI
+failures during initialization: `spinlock bad magic`, a suspected spinlock
+lockup, and an invalid DMA unmap. No final panic/restart trace persisted.
+`CONFIG_PANIC_TIMEOUT=180` is enabled. Keep the reboot as a separate USB/kernel
+stability problem unless a future crash trace implicates GX directly.
+
+The deterministic double-buffer tests have now eliminated recent blur and
+half-frame updates. Reintroduce live fbcon pixels while alternating the two
+physical texture buffers on every submitted frame. Keep all corrected GX state,
+PE completion, cache flushing/invalidation, EFB/XFB double buffering, and FIFO
+controls unchanged. This is the first test of whether the texture-buffer fix
+stabilizes the original accelerated console workload.
+
 ---
 
 ## Known pitfalls
