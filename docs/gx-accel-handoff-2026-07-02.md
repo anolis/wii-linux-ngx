@@ -5860,6 +5860,32 @@ cafaecdad36e80fb3c6681388bf2f3c7a94690ea9ed1c65e6f57e512587b456d
 
 The image is 4,337,872 bytes.
 
+Hardware result for `cafaecda...`: **intermittent across cold boots with the
+identical image.** The initial boot advanced through the startup colours and
+remained solid teal. Without changing or redeploying the card, three complete
+power-off boots then produced clear console, clear console, and teal. This
+decisively rules out a deterministic command-encoding or framebuffer-content
+failure and identifies an inherited GX state or initialization-order race.
+
+Normal syslog retained all four boot sections. They map to teal at 20:16:32,
+clear at 20:18:08, clear at 20:19:50, and teal at 20:55:50 in the Wii RTC time.
+All four used FIFO `0x01684000`, textures `0x01200000/0x012c0000`, identical
+`WT=RD=0x0300` live streams, successful PE tokens and finish IRQs, substantial
+changing texture data, and alternating XFB presentation. Initial CP status is
+not predictive: `SR=0x0008` and `SR=0x000c` each occur in both outcomes.
+
+The only observed correlation is live-stream completion latency. First `live0`
+token waits were 870 and 1570 microseconds on teal boots versus 400 and 400
+microseconds on clear boots. The following live frame retained the ordering:
+820/620 microseconds teal versus 460/360 microseconds clear. This does not yet
+prove causation, but it is the first logged discriminator between outcomes.
+
+Next use the independently validated byte-exact 564-byte libogc red frame once
+as a raster-pipeline preconditioner before the unchanged generated live frame.
+That replay has already rendered deterministically in 640x480 mode and requires
+no one-time libogc preamble. If it makes repeated cold boots reliable, bisect
+the replay's state writes later; if not, look outside the generated state gap.
+
 ---
 
 ## Known pitfalls
