@@ -5913,6 +5913,30 @@ Built image SHA-256:
 
 The image is 4,338,156 bytes.
 
+Hardware result for `2831c40c...`: **the validated replay eliminated generated
+draw failure in four of four cold boots.** The ordered visual results were
+blurry console, blurry console, clear console, clear console. Every boot passed
+through the brief startup colours and validated red replay before the generated
+live console; none remained red, purple, teal, or inherited green.
+
+This strongly supports a missing/inherited command-state gap in the generated
+path: executing the known-working 564-byte public frame once makes generated
+textured draws reliable. It does not fix blur, which remains independently
+nondeterministic with the identical image.
+
+No replay-era boot section persisted in `kern.log` or its rotated `dmesg`
+files; they end with the preceding `cafaecda...` live-only runs and contain a
+zero-filled log tail. Classify the four outcomes as full-frame visual evidence,
+not logged completion evidence. The prior exact-replay and generated-path tests
+already provide their separate positive controls, but do not invent timing or
+register correlations for this sequence.
+
+Before another state change, capture one blurry and one clear frame from this
+same checksum through the HDMI capture device. Compare line/column periodicity,
+field duplication, scaling, and XFB mixing. The result should determine whether
+the next isolated test belongs in VI field presentation, EFB copy geometry, or
+texture-coordinate sampling.
+
 ---
 
 ## Known pitfalls
