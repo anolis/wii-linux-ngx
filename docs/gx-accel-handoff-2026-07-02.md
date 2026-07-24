@@ -5886,6 +5886,33 @@ That replay has already rendered deterministically in 640x480 mode and requires
 no one-time libogc preamble. If it makes repeated cold boots reliable, bisect
 the replay's state writes later; if not, look outside the generated state gap.
 
+### Precondition generated rendering with the validated replay
+
+The active test adds one state-machine phase after the blue startup copy and
+before `live0`. It submits the exact 564-byte libogc red-frame capture through
+`gx_load_reference_red_frame()`, patches only its XFB destination, waits for its
+normal PE finish observation, and then enters the unchanged continuous live
+RGB565 path. No one-time libogc initialization preamble, MMIO reset, source
+change, or generated draw-state change is included.
+
+The replay submission must log `WT=0x0240 pos=576`, drain completely, and show
+red. A successful generated transition then shows the console. If the generated
+draw still fails, the replay leaves red in EFB for the first failed copy, after
+which the existing purple/teal clear sequence identifies continued failure.
+
+Run at least four complete cold boots of the identical image. Report each as
+`console`, `red`, `purple`, `teal`, or another visible state. This tests whether
+state established by the known-working public GX frame eliminates the current
+two-success/two-failure cold-boot split.
+
+Built image SHA-256:
+
+```text
+2831c40c4131971541b89b831b7f86fb860f617c10e69621a1f0f76a8a3d18df
+```
+
+The image is 4,338,156 bytes.
+
 ---
 
 ## Known pitfalls

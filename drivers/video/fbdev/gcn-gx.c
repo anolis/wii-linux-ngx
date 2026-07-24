@@ -78,6 +78,7 @@ enum gx_finish_diag_phase {
 	GX_DIAG_SEED,
 	GX_DIAG_WAIT_SEED,
 	GX_DIAG_WAIT_BLUE,
+	GX_DIAG_WAIT_REPLAY,
 	GX_DIAG_WAIT_DRAW,
 	GX_DIAG_DONE,
 };
@@ -1635,7 +1636,19 @@ static bool gx_process_rgb565(const void *vfb, u32 xfb_phys,
 	case GX_DIAG_WAIT_BLUE:
 		if (finish_count == gx_diag_finish_baseline)
 			break;
-		pr_info("gcn-gx: blue seed complete; enabling live RGB565 texture\n");
+		pr_info("gcn-gx: blue seed complete; submitting libogc replay preconditioner\n");
+		gx_diag_finish_baseline = finish_count;
+		fifo_pos = 0;
+		gx_load_reference_red_frame(xfb_phys, width, height);
+		gx_submit_cmds("replay-init");
+		gx_diag_phase = GX_DIAG_WAIT_REPLAY;
+		submitted = true;
+		break;
+
+	case GX_DIAG_WAIT_REPLAY:
+		if (finish_count == gx_diag_finish_baseline)
+			break;
+		pr_info("gcn-gx: libogc replay preconditioner complete; enabling live RGB565 texture\n");
 		gx_diag_finish_baseline = finish_count;
 		gx_submit_live_rgb565(vfb, xfb_phys, width, height, "live0");
 		gx_diag_phase = GX_DIAG_WAIT_DRAW;
